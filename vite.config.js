@@ -3,7 +3,7 @@ import react from '@vitejs/plugin-react'
 import path from 'path'
 
 export default defineConfig({
-  base: '/', 
+  base: '/',
   plugins: [react()],
   resolve: {
     alias: {
@@ -11,17 +11,13 @@ export default defineConfig({
     },
   },
   build: {
+    // 1. Fixes the 'exports is undefined' crash by transforming CJS to ESM
     commonjsOptions: {
       transformMixedEsModules: true, 
     },
-    // Optional: Only keep manualChunks if you've fixed the Circular Chunk warning
+    // 2. Remove manualChunks to fix the 'Circular chunk' warning from your logs
     rollupOptions: {
-      output: {
-        manualChunks: {
-          vendor: ['react', 'react-dom', 'react-router-dom'],
-          ui: ['lucide-react', 'framer-motion', 'recharts'],
-        },
-      },
+      external: ['https'], // Don't try to bundle Node's 'https' module
     },
   },
   server: {
