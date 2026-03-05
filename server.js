@@ -208,20 +208,30 @@ const upload = multer({ storage: storage });
 
 const protect = async (req, res, next) => {
   let token;
+  
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      
       req.user = await User.findByPk(decoded.id, {
         attributes: { exclude: ['password'] }
       });
-      next();
+
+      // FIX: If the token is valid but the user was deleted/not found
+      if (!req.user) {
+        return res.status(401).json({ message: 'Not authorized, user no longer exists' });
+      }
+
+      return next(); // Use return to ensure no other code in this function runs
     } catch (error) {
-      res.status(401).json({ message: 'Not authorized, token failed' });
+      return res.status(401).json({ message: 'Not authorized, token failed' });
     }
   }
+
   if (!token) {
-    res.status(401).json({ message: 'Not authorized, no token' });
+    // FIX: Added return here to prevent execution from continuing
+    return res.status(401).json({ message: 'Not authorized, no token' });
   }
 };
 
