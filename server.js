@@ -29,7 +29,8 @@ const corsOptions = {
     const allowedOrigins = [
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
-      'http://localhost:5000'
+      'http://localhost:5000',
+      'https://mutsda.onrender.com'
     ];
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.ngrok-free.dev') || origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io')) {
       callback(null, true);
