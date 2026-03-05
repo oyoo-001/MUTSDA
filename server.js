@@ -1244,15 +1244,20 @@ io.on('connection', (socket) => {
     }
   });
 });
+app.set('io', io); // Make io accessible to the rest of the app if needed
+
 if (process.env.NODE_ENV === 'production') {
   const __dirname = path.resolve();
-  app.use(express.static(path.join(__dirname, '/dist')));
 
+  // Serve static files
+  app.use(express.static(path.join(__dirname, 'dist')));
+
+  // React/Vite routing fix
   app.get('*', (req, res) =>
     res.sendFile(path.resolve(__dirname, 'dist', 'index.html'))
   );
 }
-app.set('io', io); // Make io accessible to the rest of the app if needed
+
 
 // -----------------------------------------------------------------------------
 // 10. SERVER START
