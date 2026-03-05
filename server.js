@@ -1000,20 +1000,6 @@ app.use('/api/chatmessages', chatRouter);
 app.use('/api/chat-groups', chatGroupRouter);
 app.use('/api/core', protect, admin, coreRouter);
 
-// -----------------------------------------------------------------------------
-// 8.5. SERVE FRONTEND APPLICATION
-// -----------------------------------------------------------------------------
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// Serve static files from the React app build directory and the uploads directory
-app.use(express.static(path.join(__dirname, 'dist')));
-app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
-// For any other request, serve the React app's index.html to enable client-side routing
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'dist', 'index.html'));
-});
 
 // -----------------------------------------------------------------------------
 // 9. SOCKET.IO for Live Chat
@@ -1257,22 +1243,24 @@ io.on('connection', (socket) => {
 });
 app.set('io', io); // Make io accessible to the rest of the app if needed
 
-if (process.env.NODE_ENV === 'production') {
-  const __dirname = path.resolve();
-
-  // Serve static files
-  app.use(express.static(path.join(__dirname, 'dist')));
-
-  // React/Vite routing fix
-  app.get('*', (req, res) =>
-    res.sendFile(path.resolve(__dirname, 'dist', 'index.html'))
-  );
-}
-
-
 // -----------------------------------------------------------------------------
-// 10. SERVER START
+// 10. SERVE FRONTEND & START SERVER
 // -----------------------------------------------------------------------------
+const __dirname = path.resolve();
+
+// 1. Serve static files from the 'dist' folder (Vite build output)
+app.use(express.static(path.join(__dirname, 'dist')));
+
+// 2. Serve uploads if you still use local storage (though you use Cloudinary)
+app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 3. SPA Routing: MUST be the very last route. 
+// This handles the "MIME type" error by ensuring 404s on assets 
+// don't accidentally return index.html while the browser expects JS.
+app.get('*', (req, res) => {
+  const file = path.join(__dirname, 'dist', 'index.html');
+  res.sendFile(file);
+});
 
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));
