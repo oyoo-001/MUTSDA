@@ -1,0 +1,32 @@
+{
+  "name": "ContactMessage",
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Sender name"
+    },
+    "email": {
+      "type": "string",
+      "description": "Sender email"
+    },
+    "subject": {
+      "type": "string",
+      "description": "Message subject"
+    },
+    "message": {
+      "type": "string",
+      "description": "Message body"
+    },
+    "read": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether the message has been read"
+    }
+  },
+  "required": [
+    "name",
+    "email",
+    "message"
+  ]
+}

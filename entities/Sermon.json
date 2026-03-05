@@ -1,0 +1,64 @@
+{
+  "name": "Sermon",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Sermon title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Sermon description/summary"
+    },
+    "speaker": {
+      "type": "string",
+      "description": "Name of the speaker/pastor"
+    },
+    "bible_references": {
+      "type": "string",
+      "description": "Bible verses referenced"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "sabbath",
+        "youth",
+        "revival",
+        "special_program",
+        "prayer_meeting",
+        "bible_study"
+      ],
+      "description": "Sermon category"
+    },
+    "video_link": {
+      "type": "string",
+      "description": "YouTube or video URL"
+    },
+    "audio_url": {
+      "type": "string",
+      "description": "Uploaded audio file URL"
+    },
+    "notes_pdf_url": {
+      "type": "string",
+      "description": "Uploaded sermon notes PDF URL"
+    },
+    "thumbnail_url": {
+      "type": "string",
+      "description": "Sermon thumbnail image URL"
+    },
+    "sermon_date": {
+      "type": "string",
+      "format": "date",
+      "description": "Date the sermon was delivered"
+    },
+    "published": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether the sermon is publicly visible"
+    }
+  },
+  "required": [
+    "title",
+    "category"
+  ]
+}

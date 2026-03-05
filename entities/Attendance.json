@@ -1,0 +1,41 @@
+{
+  "name": "Attendance",
+  "type": "object",
+  "properties": {
+    "member_email": {
+      "type": "string",
+      "description": "Member email"
+    },
+    "member_name": {
+      "type": "string",
+      "description": "Member name"
+    },
+    "date": {
+      "type": "string",
+      "format": "date",
+      "description": "Attendance date"
+    },
+    "service_type": {
+      "type": "string",
+      "enum": [
+        "sabbath_school",
+        "divine_service",
+        "afternoon",
+        "prayer_meeting",
+        "youth",
+        "other"
+      ],
+      "description": "Type of service"
+    },
+    "present": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether member was present"
+    }
+  },
+  "required": [
+    "member_email",
+    "date",
+    "service_type"
+  ]
+}

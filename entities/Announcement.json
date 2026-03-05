@@ -1,0 +1,39 @@
+{
+  "name": "Announcement",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Announcement title"
+    },
+    "content": {
+      "type": "string",
+      "description": "Announcement content/body"
+    },
+    "pinned": {
+      "type": "boolean",
+      "default": false,
+      "description": "Whether this announcement is pinned"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "general",
+        "urgent",
+        "event",
+        "ministry",
+        "youth"
+      ],
+      "description": "Announcement category"
+    },
+    "published": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether announcement is visible"
+    }
+  },
+  "required": [
+    "title",
+    "content"
+  ]
+}

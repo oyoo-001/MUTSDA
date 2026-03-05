@@ -1,0 +1,27 @@
+{
+  "name": "ChatMessage",
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "Chat message content"
+    },
+    "sender_name": {
+      "type": "string",
+      "description": "Display name of sender"
+    },
+    "sender_email": {
+      "type": "string",
+      "description": "Email of sender"
+    },
+    "channel": {
+      "type": "string",
+      "default": "general",
+      "description": "Chat channel"
+    }
+  },
+  "required": [
+    "message",
+    "sender_email"
+  ]
+}

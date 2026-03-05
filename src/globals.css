@@ -1,0 +1,90 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Playfair+Display:wght@400;500;600;700&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --church-navy: #1a2744;
+  --church-gold: #c8a951;
+  --church-gold-light: #e8d48b;
+  --church-cream: #faf8f2;
+  --church-blue: #2d5f8a;
+  --church-green: #3a7d5c;
+}
+
+@layer base {
+  :root {
+    --background: 40 33% 97%;
+    --foreground: 222 47% 18%;
+    --card: 0 0% 100%;
+    --card-foreground: 222 47% 18%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222 47% 18%;
+    --primary: 222 42% 18%;
+    --primary-foreground: 40 33% 97%;
+    --secondary: 40 33% 93%;
+    --secondary-foreground: 222 47% 18%;
+    --muted: 40 15% 93%;
+    --muted-foreground: 222 10% 45%;
+    --accent: 42 58% 55%;
+    --accent-foreground: 222 47% 18%;
+    --destructive: 0 84% 60%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 40 15% 88%;
+    --input: 40 15% 88%;
+    --ring: 42 58% 55%;
+    --radius: 0.625rem;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', sans-serif;
+  }
+}
+
+.font-serif {
+  font-family: 'Playfair Display', serif;
+}
+
+.hero-gradient {
+  background: linear-gradient(135deg, #1a2744 0%, #2d5f8a 50%, #1a2744 100%);
+}
+
+.gold-gradient {
+  background: linear-gradient(135deg, #c8a951 0%, #e8d48b 50%, #c8a951 100%);
+}
+
+.glass-card {
+  background: rgba(255, 255, 255, 0.85);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.3);
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #c8a951;
+  border-radius: 3px;
+}
+
+/* Smooth page transitions */
+.page-enter {
+  opacity: 0;
+  transform: translateY(8px);
+}
+.page-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+  transition: all 0.4s ease;
+}

@@ -1,0 +1,39 @@
+{
+  "name": "MediaItem",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Media item title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Media description"
+    },
+    "media_type": {
+      "type": "string",
+      "enum": [
+        "photo",
+        "video"
+      ],
+      "description": "Type of media"
+    },
+    "file_url": {
+      "type": "string",
+      "description": "URL of the media file"
+    },
+    "album": {
+      "type": "string",
+      "description": "Album or category name"
+    },
+    "event_name": {
+      "type": "string",
+      "description": "Related event name"
+    }
+  },
+  "required": [
+    "title",
+    "media_type",
+    "file_url"
+  ]
+}

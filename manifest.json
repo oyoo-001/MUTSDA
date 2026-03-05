@@ -1,0 +1,20 @@
+{
+  "name": "MUTSDA Church",
+  "short_name": "MUTSDA",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a2744",
+  "theme_color": "#1a2744",
+  "icons": [
+    {
+      "src": "https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png",
+      "sizes": "200x200",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png",
+      "sizes": "512x512",
+      "type": "image/svg+xml"
+    }
+  ]
+}

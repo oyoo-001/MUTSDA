@@ -1,0 +1,59 @@
+{
+  "name": "Event",
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Event title"
+    },
+    "description": {
+      "type": "string",
+      "description": "Event description"
+    },
+    "event_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event date and time"
+    },
+    "end_date": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event end date and time"
+    },
+    "location": {
+      "type": "string",
+      "description": "Event location"
+    },
+    "banner_image_url": {
+      "type": "string",
+      "description": "Event banner image URL"
+    },
+    "category": {
+      "type": "string",
+      "enum": [
+        "worship",
+        "youth",
+        "outreach",
+        "fellowship",
+        "seminar",
+        "camp_meeting",
+        "special"
+      ],
+      "description": "Event category"
+    },
+    "rsvp_enabled": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether RSVP is enabled"
+    },
+    "published": {
+      "type": "boolean",
+      "default": true,
+      "description": "Whether event is publicly visible"
+    }
+  },
+  "required": [
+    "title",
+    "event_date"
+  ]
+}

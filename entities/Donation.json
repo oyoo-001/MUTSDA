@@ -1,0 +1,70 @@
+{
+  "name": "Donation",
+  "type": "object",
+  "properties": {
+    "donor_name": {
+      "type": "string",
+      "description": "Name of the donor"
+    },
+    "donor_email": {
+      "type": "string",
+      "description": "Donor email"
+    },
+    "donation_type": {
+      "type": "string",
+      "enum": [
+        "tithe",
+        "offering",
+        "building_fund",
+        "mission_fund",
+        "custom"
+      ],
+      "description": "Type of donation"
+    },
+    "custom_fund_name": {
+      "type": "string",
+      "description": "Custom fund name if type is custom"
+    },
+    "amount": {
+      "type": "number",
+      "description": "Donation amount"
+    },
+    "currency": {
+      "type": "string",
+      "default": "KES",
+      "description": "Currency code"
+    },
+    "payment_method": {
+      "type": "string",
+      "enum": [
+        "mpesa",
+        "card",
+        "bank_transfer",
+        "cash"
+      ],
+      "description": "Payment method used"
+    },
+    "transaction_reference": {
+      "type": "string",
+      "description": "Transaction reference number"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "pending",
+        "completed",
+        "failed"
+      ],
+      "default": "completed",
+      "description": "Payment status"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Additional notes"
+    }
+  },
+  "required": [
+    "donation_type",
+    "amount"
+  ]
+}
