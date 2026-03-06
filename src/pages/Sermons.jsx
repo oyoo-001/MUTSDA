@@ -1,12 +1,17 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { apiClient } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Added Dialog
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 
@@ -20,11 +25,29 @@ const categoryLabels = {
 };
 
 export default function Sermons() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
+  const [user, setUser] = useState(null);
   // State for the playback modal
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [viewingDetails, setViewingDetails] = useState(null);
+  const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
+  const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const isAuth = await apiClient.auth.isAuthenticated();
+        if (isAuth) setUser(await apiClient.auth.me());
+      } catch (e) {
+        console.error("Auth load failed", e);
+      }
+    };
+    loadUser();
+  }, []);
 
   const { data: sermons, isLoading, isError, refetch } = useQuery({
     queryKey: ["sermons"],
@@ -34,6 +57,14 @@ export default function Sermons() {
     },
     initialData: [],
   });
+
+  useEffect(() => {
+    const watchId = searchParams.get("watch");
+    if (watchId && sermons.length > 0) {
+      const sermonToWatch = sermons.find(s => s.id.toString() === watchId);
+      if (sermonToWatch) setSelectedVideo(sermonToWatch);
+    }
+  }, [sermons, searchParams]);
 
   const filtered = useMemo(() => {
     const dataArray = Array.isArray(sermons) ? sermons : [];
@@ -52,6 +83,15 @@ export default function Sermons() {
     if (!url) return null;
     const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=))([^&?\s]+)/);
     return match ? match[1] : null;
+  };
+
+  const handleWatch = (sermon) => {
+    if (!user) {
+      setPendingAuthVideo(sermon);
+      setLoginAlertOpen(true);
+    } else {
+      setSelectedVideo(sermon);
+    }
   };
 
   return (
@@ -114,6 +154,19 @@ export default function Sermons() {
         </DialogContent>
       </Dialog>
 
+      <AlertDialog open={loginAlertOpen} onOpenChange={setLoginAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign in Required</AlertDialogTitle>
+            <AlertDialogDescription>You need to be signed in to watch this sermon.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => navigate("/auth", { state: { from: { pathname: location.pathname, search: `?watch=${pendingAuthVideo?.id}` } } })}>Sign In</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       {/* Hero */}
       <section className="relative py-24 bg-gradient-to-br from-[#1a2744] to-[#2d5f8a]">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 text-center">
@@ -172,7 +225,7 @@ export default function Sermons() {
                     className="group"
                   >
                     <div className="bg-white rounded-2xl overflow-hidden border hover:shadow-lg transition-all h-full flex flex-col">
-                      <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => sermon.video_link && setSelectedVideo(sermon)}>
+                      <div className="relative aspect-video bg-slate-200 cursor-pointer" onClick={() => sermon.video_link && handleWatch(sermon)}>
                         {thumbnailUrl ? (
                           <img src={thumbnailUrl} alt={sermon.title} className="w-full h-full object-cover" />
                         ) : isAudioOnly ? (
@@ -215,7 +268,7 @@ export default function Sermons() {
                           <div className="flex gap-2 pt-2">
                             {sermon.video_link && (
                               <Button 
-                                onClick={() => setSelectedVideo(sermon)}
+                                onClick={() => handleWatch(sermon)}
                                 variant="default" 
                                 size="sm" 
                                 className="h-8 gap-1.5 text-xs bg-[#1a2744]"

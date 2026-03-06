@@ -1,11 +1,16 @@
 import React, { useState, useEffect, useMemo } from "react";
 import { apiClient } from "@/api/base44Client";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes, differenceInSeconds } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
@@ -54,10 +59,15 @@ function Countdown({ date }) {
 
 export default function Events() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [user, setUser] = useState(null);
   const [filter, setFilter] = useState("all");
   const [selectedVideo, setSelectedVideo] = useState(null);
   const [viewingDetails, setViewingDetails] = useState(null);
+  const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
+  const [loginAlertOpen, setLoginAlertOpen] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -80,6 +90,14 @@ export default function Events() {
     },
     initialData: [],
   });
+
+  useEffect(() => {
+    const watchId = searchParams.get("watch");
+    if (watchId && eventsData.length > 0) {
+      const eventToWatch = eventsData.find(e => e.id.toString() === watchId);
+      if (eventToWatch) setSelectedVideo(eventToWatch);
+    }
+  }, [eventsData, searchParams]);
 
   // 2. Defensively fetch RSVPs
   const { data: rsvpsData } = useQuery({
@@ -130,6 +148,15 @@ export default function Events() {
     return match ? match[1] : null;
   };
 
+  const handleWatch = (event) => {
+    if (!user) {
+      setPendingAuthVideo(event);
+      setLoginAlertOpen(true);
+    } else {
+      setSelectedVideo(event);
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#faf8f2]">
       {/* Video Playback Modal */}
@@ -178,6 +205,19 @@ export default function Events() {
           </div>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog open={loginAlertOpen} onOpenChange={setLoginAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign in Required</AlertDialogTitle>
+            <AlertDialogDescription>You need to be signed in to watch this event.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => navigate("/auth", { state: { from: { pathname: location.pathname, search: `?watch=${pendingAuthVideo?.id}` } } })}>Sign In</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <section className="relative py-24 bg-gradient-to-br from-[#1a2744] to-[#2d5f8a]">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 text-center">
@@ -276,7 +316,7 @@ export default function Events() {
                           <Countdown date={event.event_date} />
                         )}
                         {event.video_link && (
-                          <Button size="sm" onClick={() => setSelectedVideo(event)} className="bg-red-600 hover:bg-red-700 text-white gap-1.5"><Play className="w-3.5 h-3.5 fill-current" /> Watch Now</Button>
+                          <Button size="sm" onClick={() => handleWatch(event)} className="bg-red-600 hover:bg-red-700 text-white gap-1.5"><Play className="w-3.5 h-3.5 fill-current" /> Watch Now</Button>
                         )}
                         {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && !isPast(new Date(event.event_date)) && (
                           <Button

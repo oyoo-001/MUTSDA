@@ -1,15 +1,38 @@
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useEffect } from "react";
 import { apiClient } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
+import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Image as ImageIcon, Film, FileText, X, AlertTriangle, Play, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
+  AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 
 export default function Gallery() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const [searchParams] = useSearchParams();
   const [filter, setFilter] = useState("all");
   const [selectedIndex, setSelectedIndex] = useState(null);
   const [albumFilter, setAlbumFilter] = useState("all");
+  const [user, setUser] = useState(null);
+  const [pendingAuthItem, setPendingAuthItem] = useState(null);
+  const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+
+  useEffect(() => {
+    const loadUser = async () => {
+      try {
+        const isAuth = await apiClient.auth.isAuthenticated();
+        if (isAuth) setUser(await apiClient.auth.me());
+      } catch (e) {
+        console.error("Auth load failed", e);
+      }
+    };
+    loadUser();
+  }, []);
 
   // 1. Defensively fetch gallery items
   const { data: mediaData, isLoading, isError, refetch } = useQuery({
@@ -21,6 +44,14 @@ export default function Gallery() {
     },
     initialData: [],
   });
+
+  useEffect(() => {
+    const watchId = searchParams.get("watch");
+    if (watchId && mediaData.length > 0) {
+      const index = mediaData.findIndex(m => m.id.toString() === watchId);
+      if (index !== -1) setSelectedIndex(index);
+    }
+  }, [mediaData, searchParams]);
 
   // 2. Safeguard filtering and album logic
   const media = Array.isArray(mediaData) ? mediaData : [];
@@ -59,6 +90,14 @@ export default function Gallery() {
     setSelectedIndex((prevIndex) => (prevIndex - 1 + filtered.length) % filtered.length);
   };
 
+  const handleItemClick = (index, item) => {
+    if (item.media_type === 'video' && !user) {
+      setPendingAuthItem(item);
+      setLoginAlertOpen(true);
+    } else {
+      setSelectedIndex(index);
+    }
+  };
 
   return (
     <div className="min-h-screen bg-[#faf8f2]">
@@ -69,6 +108,19 @@ export default function Gallery() {
           <h1 className="text-4xl md:text-5xl font-bold text-white mt-3 font-serif">Media Gallery</h1>
         </div>
       </section>
+
+      <AlertDialog open={loginAlertOpen} onOpenChange={setLoginAlertOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Sign in Required</AlertDialogTitle>
+            <AlertDialogDescription>You need to be signed in to watch videos.</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={() => navigate("/auth", { state: { from: { pathname: location.pathname, search: `?watch=${pendingAuthItem?.id}` } } })}>Sign In</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       {/* Filters */}
       <section className="py-8 px-4 lg:px-8 border-b bg-white sticky top-16 z-30">
@@ -130,7 +182,7 @@ export default function Gallery() {
                   initial={{ opacity: 0, scale: 0.9 }}
                   animate={{ opacity: 1, scale: 1 }}
                   transition={{ delay: i * 0.03 }}
-                  onClick={() => setSelectedIndex(i)}
+                  onClick={() => handleItemClick(i, item)}
                   className="group cursor-pointer relative"
                 >
                   <div className="aspect-square rounded-xl overflow-hidden relative bg-gray-100 shadow-sm">

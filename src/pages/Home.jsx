@@ -9,6 +9,12 @@ import LatestSermons from "@/components/home/LatestSermons";
 import AnnouncementsBanner from "@/components/home/AnnouncementsBanner";
 import { toast } from "sonner";
 
+const getYouTubeId = (url) => {
+  if (!url) return null;
+  const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=))([^&?\s]+)/);
+  return match ? match[1] : null;
+};
+
 export default function Home() {
   const queryClient = useQueryClient();
 
@@ -27,7 +33,11 @@ export default function Home() {
     queryKey: ["home-sermons"],
     queryFn: async () => {
       const data = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
-      return Array.isArray(data) ? data.slice(0, 3) : [];
+      const sliced = Array.isArray(data) ? data.slice(0, 3) : [];
+      return sliced.map(s => ({
+        ...s,
+        thumbnail_url: s.thumbnail_url || (s.video_link ? `https://img.youtube.com/vi/${getYouTubeId(s.video_link)}/mqdefault.jpg` : null)
+      }));
     },
     initialData: [],
   });
