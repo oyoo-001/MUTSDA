@@ -7,7 +7,7 @@ import { io } from "socket.io-client";
 import { toast } from "sonner";
 import {
   Menu, X, ChevronDown, User, LogOut, LayoutDashboard,
-  Church, BookOpen, Calendar, Heart, Mail, Image, Bell, Home, MessageSquare
+  Church, BookOpen, Calendar, Heart, Mail, Image, Bell, Home, MessageSquare, Radio
 } from "lucide-react"; // Assuming MessageCircle is not used here anymore
 import LiveChat from "@/components/chat/LiveChat";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ export default function Layout({ children, currentPageName }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [scrolled, setScrolled] = useState(false);
+  const [isLive, setIsLive] = useState(false);
   const [unreadChatCount, setUnreadChatCount] = useState(() => {
     return parseInt(sessionStorage.getItem("unreadChatCount") || "0", 10);
   });
@@ -66,6 +67,21 @@ export default function Layout({ children, currentPageName }) {
       sessionStorage.setItem("unreadChatCount", "0");
     }
   }, [currentPageName]);
+
+  // Live Stream Status
+  useEffect(() => {
+    // NOTE: This URL should ideally come from an environment variable
+    // and match the one used by the Broadcaster/Viewer components.
+    const signalingSocket = io('http://localhost:4000');
+
+    signalingSocket.on('live_streams_update', (activeStreams) => {
+      setIsLive(activeStreams.length > 0);
+    });
+
+    return () => {
+      signalingSocket.disconnect();
+    };
+  }, []);
 
   // Global Real-time Notifications & Data Refresh
   useEffect(() => {
@@ -170,6 +186,15 @@ export default function Layout({ children, currentPageName }) {
 </Link>
             {/* Desktop nav */}
             <nav className="hidden lg:flex items-center gap-1">
+              {isLive && (
+                <Link
+                  to={createPageUrl("Sermons")} // Links to a page where the Viewer component might be
+                  className="px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center bg-red-100 text-red-600 animate-pulse"
+                >
+                  <Radio className="w-4 h-4 mr-1.5" />
+                  LIVE
+                </Link>
+              )}
               {publicNav.map(item => (
                 <Link
                   key={item.page}
@@ -254,6 +279,16 @@ export default function Layout({ children, currentPageName }) {
         {mobileOpen && (
           <div className="lg:hidden border-t bg-white shadow-lg">
             <nav className="p-4 space-y-1">
+              {isLive && (
+                <Link
+                  to={createPageUrl("Sermons")}
+                  onClick={() => setMobileOpen(false)}
+                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-600"
+                >
+                  <Radio className="w-4 h-4" />
+                  LIVE NOW
+                </Link>
+              )}
               {publicNav.map(item => (
                 <Link
                   key={item.page}

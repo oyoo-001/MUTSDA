@@ -30,7 +30,8 @@ const corsOptions = {
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
       'http://localhost:5000',
-      'https://mutsda.onrender.com'
+      'https://mutsda.onrender.com',
+       'https://philologic-debi-unsophisticatedly.ngrok-free.dev'
     ];
     if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.ngrok-free.dev') || origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io')) {
       callback(null, true);

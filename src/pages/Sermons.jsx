@@ -12,8 +12,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info } from "lucide-react";
+import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info, Radio } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { io } from "socket.io-client";
+import Viewer from "../../Viewer";
 
 const categoryLabels = {
   sabbath: "Sabbath",
@@ -36,6 +38,7 @@ export default function Sermons() {
   const [viewingDetails, setViewingDetails] = useState(null);
   const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
   const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -66,6 +69,18 @@ export default function Sermons() {
     }
   }, [sermons, searchParams]);
 
+  // Live Stream Status
+  useEffect(() => {
+    const signalingSocket = io('http://localhost:4000');
+
+    signalingSocket.on('live_streams_update', (activeStreams) => {
+      setIsLive(activeStreams.includes('sermon-live'));
+    });
+
+    return () => {
+      signalingSocket.disconnect();
+    };
+  }, []);
   const filtered = useMemo(() => {
     const dataArray = Array.isArray(sermons) ? sermons : [];
     return dataArray.filter((s) => {
@@ -175,6 +190,22 @@ export default function Sermons() {
           <p className="text-white/60 mt-4 max-w-2xl mx-auto">Watch, listen, and be blessed by messages from God's Word.</p>
         </div>
       </section>
+
+      {/* Live Stream Player */}
+      {isLive && (
+        <section className="py-12 px-4 lg:px-8 bg-black">
+          <div className="max-w-4xl mx-auto">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex items-center gap-2 text-red-500 font-bold">
+                <Radio className="w-5 h-5 animate-pulse" />
+                <span>LIVE NOW</span>
+              </div>
+              <h2 className="text-white text-lg font-bold">Sabbath Service</h2>
+            </div>
+            <Viewer streamId="sermon-live" />
+          </div>
+        </section>
+      )}
 
       {/* Filters */}
       <section className="py-8 px-4 lg:px-8 border-b bg-white sticky top-16 z-30">

@@ -11,9 +11,11 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Radio } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { io } from "socket.io-client";
+import Viewer from "../../Viewer";
 
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
@@ -68,6 +70,7 @@ export default function Events() {
   const [viewingDetails, setViewingDetails] = useState(null);
   const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
   const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+  const [isLive, setIsLive] = useState(false);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -81,6 +84,18 @@ export default function Events() {
     loadUser();
   }, []);
 
+  // Live Stream Status
+  useEffect(() => {
+    const signalingSocket = io('http://localhost:4000');
+
+    signalingSocket.on('live_streams_update', (activeStreams) => {
+      setIsLive(activeStreams.includes('sermon-live'));
+    });
+
+    return () => {
+      signalingSocket.disconnect();
+    };
+  }, []);
   // 1. Defensively fetch events
   const { data: eventsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["events"],
@@ -225,6 +240,22 @@ export default function Events() {
           <h1 className="text-4xl md:text-5xl font-bold text-white mt-3 font-serif">Church Events</h1>
         </div>
       </section>
+
+      {/* Live Stream Player */}
+      {isLive && (
+        <section className="py-12 px-4 lg:px-8 bg-black">
+          <div className="max-w-4xl mx-auto">
+            <div className="mb-4 flex items-center gap-3">
+              <div className="flex items-center gap-2 text-red-500 font-bold">
+                <Radio className="w-5 h-5 animate-pulse" />
+                <span>LIVE NOW</span>
+              </div>
+              <h2 className="text-white text-lg font-bold">Live Event Broadcast</h2>
+            </div>
+            <Viewer streamId="sermon-live" />
+          </div>
+        </section>
+      )}
 
       {/* Filters */}
       <section className="py-8 px-4 lg:px-8 border-b bg-white sticky top-16 z-30">

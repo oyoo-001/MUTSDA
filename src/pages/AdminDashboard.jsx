@@ -15,6 +15,7 @@ import AdminMessages from "@/components/admin/AdminMessages";
 import AdminChatGroups from "@/components/admin/AdminChatGroups";
 import SupportAdmin from "@/components/admin/SupportAdmin";
 import { toast } from "sonner";
+import Broadcaster from "../../Broadcaster";
 
 export default function AdminDashboard() {
   const [searchParams] = useSearchParams();
@@ -131,6 +132,7 @@ export default function AdminDashboard() {
       case "media": return <AdminMedia media={media} />;
       case "messages": return <AdminMessages messages={messages} />;
       case "chat-groups": return <AdminChatGroups chatGroups={chatGroups} members={members} />;
+      case "streamer": return <Broadcaster streamId="sermon-live" />;
       case "support": return <SupportAdmin user={user} acceptUser={searchParams.get('acceptUser')} />;
       default: return <AdminOverview members={members} sermons={sermons} events={events} donations={donations} />;
     }
