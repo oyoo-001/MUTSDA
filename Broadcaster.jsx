@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
 
 const Broadcaster = ({ streamId = 'default' }) => {
@@ -8,6 +8,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [selectedCamera, setSelectedCamera] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
+  const [isScreenSharing, setIsScreenSharing] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [permissionError, setPermissionError] = useState(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
@@ -224,6 +225,81 @@ const Broadcaster = ({ streamId = 'default' }) => {
     }
   };
 
+  const toggleScreenShare = async () => {
+    if (isScreenSharing) {
+      await stopScreenShare();
+    } else {
+      await startScreenShare();
+    }
+  };
+
+  const startScreenShare = async () => {
+    try {
+      const screenStream = await navigator.mediaDevices.getDisplayMedia({ video: true });
+      const screenTrack = screenStream.getVideoTracks()[0];
+      
+      screenTrack.onended = () => {
+        if (isScreenSharing) stopScreenShare();
+      };
+
+      if (streamRef.current) {
+        const videoTrack = streamRef.current.getVideoTracks()[0];
+        if (videoTrack) {
+            videoTrack.stop();
+            streamRef.current.removeTrack(videoTrack);
+        }
+        streamRef.current.addTrack(screenTrack);
+        
+        if (videoRef.current) {
+            videoRef.current.srcObject = streamRef.current;
+        }
+
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(screenTrack);
+          }
+        });
+      }
+      setIsScreenSharing(true);
+    } catch (error) {
+      console.error("Error starting screen share:", error);
+    }
+  };
+
+  const stopScreenShare = async () => {
+    try {
+      const cameraStream = await navigator.mediaDevices.getUserMedia({
+        audio: false,
+        video: { deviceId: selectedCamera ? { exact: selectedCamera } : undefined }
+      });
+      const cameraTrack = cameraStream.getVideoTracks()[0];
+
+      if (streamRef.current) {
+        const screenTrack = streamRef.current.getVideoTracks()[0];
+        if (screenTrack) {
+            screenTrack.stop();
+            streamRef.current.removeTrack(screenTrack);
+        }
+        streamRef.current.addTrack(cameraTrack);
+
+        if (videoRef.current) {
+            videoRef.current.srcObject = streamRef.current;
+        }
+
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(cameraTrack);
+          }
+        });
+      }
+      setIsScreenSharing(false);
+    } catch (error) {
+      console.error("Error stopping screen share:", error);
+    }
+  };
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
       {/* Header */}
@@ -304,6 +380,13 @@ const Broadcaster = ({ streamId = 'default' }) => {
                 {isRecording ? <Square className="w-5 h-5 fill-current" /> : <Disc className="w-5 h-5" />}
               </button>
               <div className="w-px h-6 bg-white/20 mx-1"></div>
+              <button 
+                onClick={toggleScreenShare}
+                className={`p-3 rounded-full transition-all ${isScreenSharing ? 'bg-blue-600 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}
+                title={isScreenSharing ? "Stop Screen Share" : "Share Screen"}
+              >
+                <Monitor className="w-5 h-5" />
+              </button>
               <button 
                 onClick={toggleVideo}
                 className={`p-3 rounded-full transition-all ${videoEnabled ? 'bg-white/20 hover:bg-white/30 text-white' : 'bg-red-500/80 hover:bg-red-600/80 text-white'}`}

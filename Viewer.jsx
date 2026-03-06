@@ -1,13 +1,23 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import { SOCKET_URL } from './src/api/base44Client';
+import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2 } from 'lucide-react';
+
 const Viewer = ({ streamId = 'default' }) => {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const [isMuted, setIsMuted] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
+  const [viewerCount, setViewerCount] = useState(0);
+  const [status, setStatus] = useState('connecting'); // connecting, live, offline
 
   useEffect(() => {
-     socketRef.current = io(SOCKET_URL);
+    socketRef.current = io(SOCKET_URL);
+    
+    socketRef.current.on('viewer_count', (count) => {
+        setViewerCount(count);
+    });
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
@@ -17,7 +27,16 @@ const Viewer = ({ streamId = 'default' }) => {
     pc.ontrack = (event) => {
       if (videoRef.current) {
         videoRef.current.srcObject = event.streams[0];
+        setStatus('live');
       }
+    };
+    
+    pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+            setStatus('offline');
+        } else if (pc.connectionState === 'connected') {
+            setStatus('live');
+        }
     };
 
     pc.onicecandidate = (event) => {
@@ -49,6 +68,7 @@ const Viewer = ({ streamId = 'default' }) => {
     socketRef.current.on('disconnectPeer', () => {
       if (videoRef.current) videoRef.current.srcObject = null;
       if (peerConnectionRef.current) peerConnectionRef.current.close();
+      setStatus('offline');
     });
 
     return () => {
@@ -57,15 +77,85 @@ const Viewer = ({ streamId = 'default' }) => {
     };
   }, [streamId]);
 
+  const toggleMute = () => {
+      if (videoRef.current) {
+          videoRef.current.muted = !videoRef.current.muted;
+          setIsMuted(videoRef.current.muted);
+      }
+  };
+
+  const toggleFullscreen = () => {
+      if (!document.fullscreenElement) {
+          videoRef.current.parentElement.requestFullscreen().catch(err => {
+              console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+          });
+          setIsFullscreen(true);
+      } else {
+          document.exitFullscreen();
+          setIsFullscreen(false);
+      }
+  };
+
+  useEffect(() => {
+      const handleFullscreenChange = () => {
+          setIsFullscreen(!!document.fullscreenElement);
+      };
+      document.addEventListener('fullscreenchange', handleFullscreenChange);
+      return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
   return (
-    <div className="viewer-container">
+    <div className={`relative group overflow-hidden bg-black rounded-xl shadow-2xl aspect-video ${isFullscreen ? 'w-full h-full' : 'w-full'}`}>
+      {status === 'connecting' && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-900 text-white">
+              <div className="flex flex-col items-center animate-pulse">
+                  <Loader2 className="w-10 h-10 mb-3 text-[#c8a951] animate-spin" />
+                  <span className="text-sm font-medium tracking-wider">CONNECTING TO LIVE STREAM...</span>
+              </div>
+          </div>
+      )}
+      {status === 'offline' && (
+          <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-900 text-white">
+              <div className="flex flex-col items-center">
+                  <Radio className="w-12 h-12 mb-2 text-gray-600" />
+                  <span className="text-sm font-medium text-gray-400">Stream Offline</span>
+              </div>
+          </div>
+      )}
+      
       <video 
         ref={videoRef} 
         autoPlay 
         playsInline 
-        controls 
-        className="w-full h-auto bg-black rounded shadow-lg"
+        className="w-full h-full object-contain"
       ></video>
+
+      {/* Overlay Controls */}
+      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 z-20">
+        <div className="flex justify-between items-start">
+            <div className="flex items-center gap-2">
+                <div className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5 shadow-lg">
+                    <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> LIVE
+                </div>
+                {status === 'live' && (
+                    <div className="bg-black/60 backdrop-blur-md text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5 border border-white/10">
+                        <Users className="w-3 h-3 text-[#c8a951]" /> {viewerCount}
+                    </div>
+                )}
+            </div>
+        </div>
+        
+        <div className="flex justify-between items-center">
+            <div className="flex items-center gap-2">
+                 <button onClick={toggleMute} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10">
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </button>
+            </div>
+            <button onClick={toggleFullscreen} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10">
+                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+            </button>
+        </div>
+      </div>
     </div>
   );
 };
