@@ -462,6 +462,24 @@ const authController = {
       res.status(500).json({ message: 'Server Error' });
     }
   },
+  changePassword: async (req, res) => {
+    const { currentPassword, newPassword } = req.body;
+    try {
+      const user = await User.findByPk(req.user.id);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+
+      const isMatch = await bcrypt.compare(currentPassword, user.password);
+      if (!isMatch) return res.status(400).json({ message: 'Incorrect current password' });
+
+      const salt = await bcrypt.genSalt(10);
+      user.password = await bcrypt.hash(newPassword, salt);
+      await user.save();
+      res.json({ message: 'Password updated successfully' });
+    } catch (err) {
+      console.error('Error in changePassword:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
   invite: async (req, res) => {
     const { email, role } = req.body;
     try {
@@ -891,6 +909,7 @@ const chatGroupController = {
 
 const authRouter = express.Router();
 authRouter.put('/me', protect, authController.updateMe);
+authRouter.put('/change-password', protect, authController.changePassword);
 authRouter.post('/me/photo', protect, upload.single('photo'), async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id);

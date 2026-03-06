@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { io } from "socket.io-client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
 import AdminOverview from "@/components/admin/AdminOverview";
 import AdminMembers from "@/components/admin/AdminMembers";
@@ -14,6 +14,7 @@ import AdminMedia from "@/components/admin/AdminMedia";
 import AdminMessages from "@/components/admin/AdminMessages";
 import AdminChatGroups from "@/components/admin/AdminChatGroups";
 import SupportAdmin from "@/components/admin/SupportAdmin";
+import { toast } from "sonner";
 
 export default function AdminDashboard() {
   const [searchParams] = useSearchParams();
@@ -22,6 +23,7 @@ export default function AdminDashboard() {
   const [collapsed, setCollapsed] = useState(false);
   const [user, setUser] = useState(null);
   const [supportQueueCount, setSupportQueueCount] = useState(0);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const load = async () => {
@@ -43,11 +45,16 @@ export default function AdminDashboard() {
       socket = io(SOCKET_URL);
       socket.emit('admin_listening');
       socket.on('support_queue_update', (q) => setSupportQueueCount(q.length));
+      
+      socket.on('donations_updated', () => {
+        toast.info("New donation received!");
+        queryClient.invalidateQueries({ queryKey: ["admin-donations"] });
+      });
     }
     return () => {
       if (socket) socket.disconnect();
     }
-  }, [user]);
+  }, [user, queryClient]);
 
   useEffect(() => {
     if (tabParam) {

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import axios from "axios";
 import { apiClient } from "@/api/base44Client";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
@@ -10,7 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
-  User, Phone, MapPin, Calendar, Heart, DollarSign,
+  User, Phone, MapPin, Calendar, Heart, DollarSign, Lock,
   Edit, Save, Upload, ChevronRight
 } from "lucide-react";
 import { toast } from "sonner";
@@ -20,6 +21,8 @@ export default function MemberProfile() {
   const [editing, setEditing] = useState(false);
   const [profileData, setProfileData] = useState({});
   const [saving, setSaving] = useState(false);
+  const [passwordForm, setPasswordForm] = useState({ current: "", new: "", confirm: "" });
+  const [changingPassword, setChangingPassword] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -76,6 +79,33 @@ export default function MemberProfile() {
     toast.success("Photo updated!");
   };
 
+  const handleChangePassword = async () => {
+    if (!passwordForm.current || !passwordForm.new || !passwordForm.confirm) {
+        toast.error("Please fill in all fields");
+        return;
+    }
+    if (passwordForm.new !== passwordForm.confirm) {
+        toast.error("New passwords do not match");
+        return;
+    }
+    setChangingPassword(true);
+    try {
+        const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+        await axios.put('/api/auth/change-password', {
+            currentPassword: passwordForm.current,
+            newPassword: passwordForm.new
+        }, {
+            headers: { Authorization: `Bearer ${token}` }
+        });
+        toast.success("Password changed successfully");
+        setPasswordForm({ current: "", new: "", confirm: "" });
+    } catch (error) {
+        toast.error(error.response?.data?.message || "Failed to change password");
+    } finally {
+        setChangingPassword(false);
+    }
+  };
+
   if (!user) {
     return <div className="flex items-center justify-center min-h-[60vh]">
       <div className="animate-pulse text-gray-400">Loading...</div>
@@ -129,6 +159,7 @@ export default function MemberProfile() {
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="giving">Giving History</TabsTrigger>
             <TabsTrigger value="events">My RSVPs</TabsTrigger>
+            <TabsTrigger value="security">Security</TabsTrigger>
           </TabsList>
 
           <TabsContent value="profile">
@@ -247,6 +278,33 @@ export default function MemberProfile() {
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="security">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2"><Lock className="w-5 h-5" /> Change Password</CardTitle>
+              </CardHeader>
+              <CardContent>
+                <div className="space-y-4 max-w-md">
+                  <div>
+                    <Label>Current Password</Label>
+                    <Input type="password" value={passwordForm.current} onChange={e => setPasswordForm({...passwordForm, current: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label>New Password</Label>
+                    <Input type="password" value={passwordForm.new} onChange={e => setPasswordForm({...passwordForm, new: e.target.value})} />
+                  </div>
+                  <div>
+                    <Label>Confirm New Password</Label>
+                    <Input type="password" value={passwordForm.confirm} onChange={e => setPasswordForm({...passwordForm, confirm: e.target.value})} />
+                  </div>
+                  <Button onClick={handleChangePassword} disabled={changingPassword} className="bg-[#1a2744] text-white hover:bg-[#2d5f8a]">
+                    {changingPassword ? "Updating..." : "Update Password"}
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
