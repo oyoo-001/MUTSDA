@@ -7,7 +7,7 @@ const Viewer = ({ streamId = 'default' }) => {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
-  const [isMuted, setIsMuted] = useState(false);
+  const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [status, setStatus] = useState('connecting'); // connecting, live, offline
@@ -45,8 +45,6 @@ const Viewer = ({ streamId = 'default' }) => {
       }
     };
 
-    socketRef.current.emit('watcher', streamId);
-
     socketRef.current.on('offer', (id, description) => {
       pc.setRemoteDescription(description)
         .then(() => pc.createAnswer())
@@ -70,6 +68,8 @@ const Viewer = ({ streamId = 'default' }) => {
       if (peerConnectionRef.current) peerConnectionRef.current.close();
       setStatus('offline');
     });
+
+    socketRef.current.emit('watcher', streamId);
 
     return () => {
       if (socketRef.current) socketRef.current.disconnect();
@@ -127,6 +127,7 @@ const Viewer = ({ streamId = 'default' }) => {
         ref={videoRef} 
         autoPlay 
         playsInline 
+        muted
         className="w-full h-full object-contain"
       ></video>
 
