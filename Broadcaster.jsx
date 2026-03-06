@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
 import Viewer from './Viewer';
 import NewsTicker from './src/components/NewsTicker';
@@ -17,6 +17,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
+  const [zoomSettings, setZoomSettings] = useState(null);
   
   const videoRef = useRef(null);
   const socketRef = useRef(null);
@@ -76,6 +77,25 @@ const Broadcaster = ({ streamId = 'default' }) => {
     return () => statusSocket.disconnect();
   }, [streamId, isStreaming]);
 
+  const updateZoomCapabilities = (stream) => {
+    const videoTrack = stream.getVideoTracks()[0];
+    if (!videoTrack) return;
+    
+    const capabilities = videoTrack.getCapabilities();
+    const settings = videoTrack.getSettings();
+
+    if (capabilities.zoom) {
+      setZoomSettings({
+        min: capabilities.zoom.min,
+        max: capabilities.zoom.max,
+        step: capabilities.zoom.step,
+        value: settings.zoom || capabilities.zoom.min
+      });
+    } else {
+      setZoomSettings(null);
+    }
+  };
+
   const enableCamera = async () => {
     setPermissionError(null);
     try {
@@ -88,6 +108,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
       }
+      updateZoomCapabilities(stream);
       setIsCameraActive(true);
       setAudioEnabled(true);
       setVideoEnabled(true);
@@ -346,6 +367,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
           if (videoRef.current) {
              videoRef.current.srcObject = streamRef.current;
           }
+          updateZoomCapabilities(newStream);
 
           Object.values(peerConnections.current).forEach(pc => {
             const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
@@ -358,6 +380,21 @@ const Broadcaster = ({ streamId = 'default' }) => {
         setVideoEnabled(true);
       } catch (err) {
         console.error("Failed to switch camera", err);
+      }
+    }
+  };
+
+  const handleZoom = async (e) => {
+    const value = parseFloat(e.target.value);
+    if (streamRef.current) {
+      const videoTrack = streamRef.current.getVideoTracks()[0];
+      if (videoTrack && zoomSettings) {
+        try {
+          await videoTrack.applyConstraints({ advanced: [{ zoom: value }] });
+          setZoomSettings(prev => ({ ...prev, value }));
+        } catch (err) {
+          console.error("Zoom failed", err);
+        }
       }
     }
   };
@@ -451,9 +488,26 @@ const Broadcaster = ({ streamId = 'default' }) => {
             </div>
           )}
 
+          {/* Zoom Control */}
+          {isCameraActive && zoomSettings && (
+            <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 z-20">
+              <ZoomIn className="w-4 h-4 text-white" />
+              <input 
+                type="range" 
+                min={zoomSettings.min} 
+                max={zoomSettings.max} 
+                step={zoomSettings.step} 
+                value={zoomSettings.value} 
+                onChange={handleZoom}
+                className="w-32 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
+              />
+              <span className="text-xs text-white font-mono w-8 text-right">{zoomSettings.value.toFixed(1)}x</span>
+            </div>
+          )}
+
           {/* Controls Overlay */}
           {isCameraActive && (
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full border border-white/10">
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full border border-white/10 z-20">
               <button 
                 onClick={isRecording ? stopRecording : startRecording}
                 className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-600 text-white animate-pulse' : 'bg-white/20 hover:bg-white/30 text-white'}`}
