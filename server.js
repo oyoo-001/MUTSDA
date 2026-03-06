@@ -89,6 +89,9 @@ const User = sequelize.define('User', {
   profile_photo_url: DataTypes.STRING,
   phone: DataTypes.STRING,
   address: DataTypes.STRING,
+  date_of_birth: DataTypes.DATEONLY,
+  baptism_date: DataTypes.DATEONLY,
+  emergency_contact: DataTypes.STRING,
   resetPasswordToken: DataTypes.STRING,
   resetPasswordExpires: DataTypes.DATE,
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
@@ -164,6 +167,7 @@ const ChatMessage = sequelize.define('ChatMessage', {
   message: { type: DataTypes.TEXT, allowNull: true },
   sender_name: DataTypes.STRING,
   sender_email: DataTypes.STRING,
+  sender_profile_photo_url: DataTypes.STRING,
   channel: { type: DataTypes.STRING, defaultValue: 'general' },
   media_url: DataTypes.STRING,
   media_type: DataTypes.STRING,
@@ -1124,6 +1128,7 @@ io.on('connection', (socket) => {
         id: user.id,
         name: user.full_name,
         email: user.email,
+        profile_photo_url: user.profile_photo_url,
       });
       const uniqueUsers = Array.from(
         new Map(Array.from(onlineUsers.values()).map(u => [u.email, u])).values()

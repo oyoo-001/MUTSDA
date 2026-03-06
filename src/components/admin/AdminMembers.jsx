@@ -78,9 +78,20 @@ export default function AdminMembers({ members }) {
   };
 
   const exportCSV = () => {
-    const headers = ["Name", "Email", "Role", "Phone", "Joined"];
+    const headers = [
+      "Name", "Email", "Role", "Phone", "Address",
+      "Date of Birth", "Baptism Date", "Emergency Contact", "Joined"
+    ];
     const rows = filtered.map(m => [
-      m.full_name, m.email, m.role, m.phone || "", m.created_date ? format(new Date(m.created_date), "yyyy-MM-dd") : ""
+      `"${m.full_name || ""}"`,
+      `"${m.email || ""}"`,
+      `"${m.role || ""}"`,
+      `"${m.phone || ""}"`,
+      `"${(m.address || "").replace(/"/g, '""')}"`,
+      `"${m.date_of_birth || ""}"`,
+      `"${m.baptism_date || ""}"`,
+      `"${m.emergency_contact || ""}"`,
+      `"${m.created_date ? format(new Date(m.created_date), "yyyy-MM-dd") : ""}"`
     ]);
     const csv = [headers, ...rows].map(r => r.join(",")).join("\n");
     const blob = new Blob([csv], { type: "text/csv" });

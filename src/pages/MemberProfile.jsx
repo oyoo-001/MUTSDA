@@ -84,6 +84,14 @@ export default function MemberProfile() {
 
   const totalGiving = donations.reduce((s, d) => s + (d.amount || 0), 0);
 
+  const displayDate = (dateString) => {
+    if (!dateString) return "—";
+    const date = new Date(dateString);
+    // The date is parsed as UTC midnight. Add the timezone offset to get the correct local day.
+    const adjustedDate = new Date(date.valueOf() + date.getTimezoneOffset() * 60 * 1000);
+    return format(adjustedDate, "MMMM d, yyyy");
+  };
+
   return (
     <div className="py-8 px-4 lg:px-8">
       <div className="max-w-5xl mx-auto">
@@ -160,7 +168,7 @@ export default function MemberProfile() {
                     {editing ? (
                       <Input type="date" value={profileData.date_of_birth} onChange={e => setProfileData({ ...profileData, date_of_birth: e.target.value })} />
                     ) : (
-                      <p className="text-sm font-medium mt-1">{user.date_of_birth ? format(new Date(user.date_of_birth), "MMMM d, yyyy") : "—"}</p>
+                      <p className="text-sm font-medium mt-1">{displayDate(user.date_of_birth)}</p>
                     )}
                   </div>
                   <div>
@@ -168,7 +176,7 @@ export default function MemberProfile() {
                     {editing ? (
                       <Input type="date" value={profileData.baptism_date} onChange={e => setProfileData({ ...profileData, baptism_date: e.target.value })} />
                     ) : (
-                      <p className="text-sm font-medium mt-1">{user.baptism_date ? format(new Date(user.baptism_date), "MMMM d, yyyy") : "—"}</p>
+                      <p className="text-sm font-medium mt-1">{displayDate(user.baptism_date)}</p>
                     )}
                   </div>
                   <div className="md:col-span-2">

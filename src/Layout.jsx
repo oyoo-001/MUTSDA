@@ -129,9 +129,13 @@ export default function Layout({ children, currentPageName }) {
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <Button variant="ghost" size="sm" className="gap-2">
-                      <div className="w-8 h-8 rounded-full bg-[#1a2744] flex items-center justify-center text-white text-xs font-bold">
-                        {user.full_name?.[0] || user.email?.[0]?.toUpperCase()}
-                      </div>
+                      {user.profile_photo_url ? (
+                        <img src={user.profile_photo_url} alt={user.full_name} className="w-8 h-8 rounded-full object-cover border border-gray-200" />
+                      ) : (
+                        <div className="w-8 h-8 rounded-full bg-[#1a2744] flex items-center justify-center text-white text-xs font-bold">
+                          {user.full_name?.[0] || user.email?.[0]?.toUpperCase()}
+                        </div>
+                      )}
                       <span className="hidden sm:inline text-sm">{user.full_name?.split(' ')[0]}</span>
                       <ChevronDown className="w-3 h-3" />
                     </Button>

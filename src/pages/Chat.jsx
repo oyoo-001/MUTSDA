@@ -114,6 +114,7 @@ export default function Chat() {
   const [caption, setCaption] = useState("");
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
+  const [viewingProfilePhoto, setViewingProfilePhoto] = useState(null);
   const fileInputRef = useRef(null);
   
   const typingTimeoutRef = useRef(null);
@@ -369,6 +370,7 @@ export default function Chat() {
         message: caption,
         sender_name: user.full_name,
         sender_email: user.email,
+        sender_profile_photo_url: user.profile_photo_url,
         channel: channelId,
         media_url: file_url,
         media_filename: selectedFile.name,
@@ -418,6 +420,7 @@ export default function Chat() {
       message: input.trim(),
       sender_name: user.full_name,
       sender_email: user.email,
+      sender_profile_photo_url: user.profile_photo_url,
       channel: channelId,
     };
 
@@ -566,6 +569,18 @@ export default function Chat() {
         </div>
       )}
 
+      {/* Profile Photo Viewer Modal */}
+      {viewingProfilePhoto && (
+        <div className="absolute inset-0 z-[70] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={() => setViewingProfilePhoto(null)}>
+          <div className="relative max-w-lg w-full max-h-[80vh] flex items-center justify-center" onClick={e => e.stopPropagation()}>
+            <img src={viewingProfilePhoto} alt="Profile" className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl border-4 border-white/10" />
+            <Button variant="ghost" size="icon" onClick={() => setViewingProfilePhoto(null)} className="absolute -top-12 right-0 text-white hover:bg-white/20 rounded-full">
+              <X className="w-6 h-6" />
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Header with Mobile Toggle */}
       <header className="p-4 border-b bg-white flex justify-between items-center">
         <div>
@@ -604,8 +619,17 @@ export default function Chat() {
 
               return (
                 <div id={`message-${msg.id}`} key={msg.id || idx} className={cn("flex items-end gap-3 group", isMe ? "flex-row-reverse" : "flex-row")}>
-                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm", getColor(msg.sender_email))}>
-                    {getInitials(msg.sender_name)}
+                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm overflow-hidden", !msg.sender_profile_photo_url && getColor(msg.sender_email))}>
+                    {msg.sender_profile_photo_url ? (
+                      <img 
+                        src={msg.sender_profile_photo_url} 
+                        alt={msg.sender_name} 
+                        className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                        onClick={() => setViewingProfilePhoto(msg.sender_profile_photo_url)}
+                      />
+                    ) : (
+                      getInitials(msg.sender_name)
+                    )}
                   </div>
                   <div className={cn("flex flex-col max-w-[75%]", isMe ? "items-end" : "items-start")}>
                     <span className="text-[11px] font-semibold text-gray-500 mb-1 px-1">{msg.sender_name}</span>
@@ -714,7 +738,7 @@ export default function Chat() {
         </div>
         {/* Desktop Sidebar */}
         <aside className="w-72 border-l bg-white hidden md:block overflow-y-auto p-6">
-          <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} />
+          <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} onViewPhoto={setViewingProfilePhoto} />
         </aside>
 
         {/* Mobile Sidebar (Sheet/Drawer Effect) */}
@@ -726,7 +750,7 @@ export default function Chat() {
                 <h3 className="font-bold text-lg">Active Members</h3>
                 <Button variant="ghost" size="icon" onClick={() => setShowMobileUsers(false)}><X /></Button>
               </div>
-              <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} />
+              <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} onViewPhoto={setViewingProfilePhoto} />
             </aside>
           </div>
         )}
@@ -736,7 +760,7 @@ export default function Chat() {
 }
 
 // Sub-component for the user list to avoid duplication
-function SidebarContent({ user, onlineUsers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor }) {
+function SidebarContent({ user, onlineUsers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto }) {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -782,24 +806,31 @@ function SidebarContent({ user, onlineUsers, myGroups, activeChannel, onChannelS
 
       <div className="border-t pt-6 space-y-4">
         <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">You</h4>
-        {user && <UserItem name={user.full_name} email={user.email} isMe getInitials={getInitials} getColor={getColor} />}
+        {user && <UserItem name={user.full_name} email={user.email} photoUrl={user.profile_photo_url} isMe getInitials={getInitials} getColor={getColor} onViewPhoto={onViewPhoto} />}
       </div>
       <div className="space-y-4">
         <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Online — {onlineUsers.length}</h4>
         {onlineUsers.map((u, i) => (
-          <UserItem key={i} name={u.name} email={u.email} getInitials={getInitials} getColor={getColor} />
+          <UserItem key={i} name={u.name} email={u.email} photoUrl={u.profile_photo_url} getInitials={getInitials} getColor={getColor} onViewPhoto={onViewPhoto} />
         ))}
       </div>
     </div>
   );
 }
 
-function UserItem({ name, email, isMe, getInitials, getColor }) {
+function UserItem({ name, email, photoUrl, isMe, getInitials, getColor, onViewPhoto }) {
   return (
     <div className="flex items-center gap-3">
       <div className="relative">
-        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold", getColor(email))}>
-          {getInitials(name)}
+        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold overflow-hidden", !photoUrl && getColor(email))}>
+          {photoUrl ? (
+            <img 
+              src={photoUrl} 
+              alt={name} 
+              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+              onClick={() => onViewPhoto && onViewPhoto(photoUrl)}
+            />
+          ) : getInitials(name)}
         </div>
         <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-white"></span>
       </div>
