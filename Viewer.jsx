@@ -1,7 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
 import { SOCKET_URL } from './src/api/base44Client';
-import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2 } from 'lucide-react';
+import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2, PictureInPicture2 } from 'lucide-react';
+import NewsTicker from './src/components/NewsTicker';
 
 const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = "Stream Offline" }) => {
   const videoRef = useRef(null);
@@ -101,6 +102,18 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
       }
   };
 
+  const togglePiP = async () => {
+    if (!videoRef.current) return;
+
+    if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture().catch(err => console.error(err));
+    } else if (document.pictureInPictureEnabled) {
+        await videoRef.current.requestPictureInPicture().catch(err => {
+            console.error(`Error attempting to enable PiP mode: ${err.message} (${err.name})`);
+        });
+    }
+  };
+
   useEffect(() => {
       const handleFullscreenChange = () => {
           setIsFullscreen(!!document.fullscreenElement);
@@ -133,13 +146,21 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
         autoPlay 
         playsInline 
         muted
-        className="w-full h-full object-contain"
+        className="w-full h-full object-cover"
       ></video>
 
+      {/* News Ticker Overlay - High Z-Index to ensure visibility */}
+      <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-auto">
+        <NewsTicker />
+      </div>
+
       {/* Overlay Controls */}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-transparent to-black/40 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 z-20">
-        <div className="flex justify-between items-start">
+      <div className="absolute inset-0 bg-gradient-to-b from-black/60 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex flex-col justify-between p-4 z-40 pointer-events-none">
+        <div className="flex justify-between items-start pointer-events-auto">
             <div className="flex items-center gap-2">
+                 <button onClick={toggleMute} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10 bg-black/20 backdrop-blur-sm">
+                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+                </button>
                 <div className="bg-red-600 text-white text-[10px] font-bold px-2 py-1 rounded flex items-center gap-1.5 shadow-lg">
                     <span className="w-1.5 h-1.5 bg-white rounded-full animate-pulse"></span> LIVE
                 </div>
@@ -149,17 +170,16 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
                     </div>
                 )}
             </div>
-        </div>
-        
-        <div className="flex justify-between items-center">
             <div className="flex items-center gap-2">
-                 <button onClick={toggleMute} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10">
-                    {isMuted ? <VolumeX className="w-5 h-5" /> : <Volume2 className="w-5 h-5" />}
+              {document.pictureInPictureEnabled && (
+                <button onClick={togglePiP} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10 bg-black/20 backdrop-blur-sm" title="Picture-in-Picture">
+                    <PictureInPicture2 className="w-5 h-5" />
                 </button>
+              )}
+              <button onClick={toggleFullscreen} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10 bg-black/20 backdrop-blur-sm" title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}>
+                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+              </button>
             </div>
-            <button onClick={toggleFullscreen} className="text-white hover:text-[#c8a951] transition-colors p-2 rounded-full hover:bg-white/10">
-                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-            </button>
         </div>
       </div>
     </div>

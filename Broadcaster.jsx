@@ -323,6 +323,45 @@ const Broadcaster = ({ streamId = 'default' }) => {
     }
   };
 
+  const handleCameraChange = async (e) => {
+    const deviceId = e.target.value;
+    setSelectedCamera(deviceId);
+
+    if (isCameraActive) {
+      try {
+        const newStream = await navigator.mediaDevices.getUserMedia({
+          audio: false,
+          video: { deviceId: { exact: deviceId } }
+        });
+        const newVideoTrack = newStream.getVideoTracks()[0];
+
+        if (streamRef.current) {
+          const oldVideoTrack = streamRef.current.getVideoTracks()[0];
+          if (oldVideoTrack) {
+            oldVideoTrack.stop();
+            streamRef.current.removeTrack(oldVideoTrack);
+          }
+          streamRef.current.addTrack(newVideoTrack);
+          
+          if (videoRef.current) {
+             videoRef.current.srcObject = streamRef.current;
+          }
+
+          Object.values(peerConnections.current).forEach(pc => {
+            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+            if (sender) {
+              sender.replaceTrack(newVideoTrack);
+            }
+          });
+        }
+        setIsScreenSharing(false);
+        setVideoEnabled(true);
+      } catch (err) {
+        console.error("Failed to switch camera", err);
+      }
+    }
+  };
+
   if (remoteStreamActive) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
@@ -371,8 +410,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
             <select 
               className="flex-1 block w-full py-2.5 px-3 border border-slate-300 bg-white rounded-lg shadow-sm focus:outline-none focus:ring-2 focus:ring-[#c8a951] focus:border-[#c8a951] sm:text-sm transition-all"
               value={selectedCamera} 
-              onChange={(e) => setSelectedCamera(e.target.value)}
-              disabled={isCameraActive}
+              onChange={handleCameraChange}
             >
               {cameras.map((cam) => (
                 <option key={cam.deviceId} value={cam.deviceId}>
@@ -400,7 +438,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
             className={`w-full h-full object-cover ${!isCameraActive && 'opacity-50'}`}
           ></video>
           
-          <div className="absolute top-0 left-0 right-0 z-10">
+          <div className="absolute bottom-0 left-0 right-0 z-10">
             <NewsTicker />
           </div>
 

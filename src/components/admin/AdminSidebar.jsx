@@ -36,7 +36,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCo
           className="text-white/60 hover:text-white hover:bg-white/10 h-8 w-8"
           onClick={() => setCollapsed(!collapsed)}
         >
-          <ChevronLeft className={`w-4 h-4 transition-transform ${collapsed ? "rotate-180" : ""}`} />
+          <ChevronLeft className={`w-2 h-2 transition-transform ${collapsed ? "rotate-180" : ""}`} />
         </Button>
       </div>
 
@@ -65,7 +65,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCo
       <div className="p-4 border-t border-white/10">
         <Link to={createPageUrl("Home")}>
           <Button variant="ghost" size="sm" className={`text-white/60 hover:text-white hover:bg-white/10 w-full ${collapsed ? "px-2" : ""}`}>
-            <ChevronLeft className="w-4 h-4 mr-1" />
+            <ChevronLeft className="w-2 h-2 mr-1" />
             {!collapsed && "Back to Site"}
           </Button>
         </Link>
