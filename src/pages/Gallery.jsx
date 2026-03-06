@@ -99,6 +99,12 @@ export default function Gallery() {
     }
   };
 
+  const getYouTubeId = (url) => {
+    if (!url) return null;
+    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=))([^&?\s]+)/);
+    return match ? match[1] : null;
+  };
+
   return (
     <div className="min-h-screen bg-[#faf8f2]">
       {/* Hero */}
@@ -197,7 +203,15 @@ export default function Gallery() {
                       />
                     )}
                     {item.media_type === 'video' && (
-                      <video src={item.file_url} className="w-full h-full object-cover" />
+                      getYouTubeId(item.file_url) ? (
+                        <img 
+                          src={`https://img.youtube.com/vi/${getYouTubeId(item.file_url)}/mqdefault.jpg`} 
+                          alt={item.title} 
+                          className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                        />
+                      ) : (
+                        <video src={item.file_url} className="w-full h-full object-cover" />
+                      )
                     )}
                     {item.media_type === 'audio' && (
                       <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 relative">
@@ -277,12 +291,21 @@ export default function Gallery() {
             >
               {selected.media_type === "video" ? (
                 <div className="w-full aspect-video bg-black rounded-lg overflow-hidden">
-                  <video 
-                    src={selected.file_url}
-                    controls 
-                    autoPlay 
-                    className="w-full h-full"
-                  />
+                  {getYouTubeId(selected.file_url) ? (
+                    <iframe 
+                      src={`https://www.youtube.com/embed/${getYouTubeId(selected.file_url)}?autoplay=1`} 
+                      className="w-full h-full" 
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" 
+                      allowFullScreen 
+                    />
+                  ) : (
+                    <video 
+                      src={selected.file_url}
+                      controls 
+                      autoPlay 
+                      className="w-full h-full"
+                    />
+                  )}
                 </div>
               ) : selected.media_type === "audio" ? (
                 <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center">

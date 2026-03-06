@@ -26,7 +26,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCo
       <div className="p-4 flex items-center justify-between border-b border-white/10">
         {!collapsed && (
           <Link to={createPageUrl("Home")} className="flex items-center gap-2">
-            <img src="https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png" alt="Logo" className="w-12 h-12 rounded-full bg-white " />
+            <img src="https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png" alt="Logo" className="w-6 h-6 rounded-full bg-white " />
             <span className="font-bold text-sm">Admin Panel</span>
           </Link>
         )}

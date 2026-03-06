@@ -1,8 +1,8 @@
 import React from "react";
-import { Bell, Pin } from "lucide-react";
+import { Bell, Pin, Info } from "lucide-react";
 import { motion } from "framer-motion";
 
-export default function AnnouncementsBanner({ announcements }) {
+export default function AnnouncementsBanner({ announcements, onViewAnnouncement }) {
   if (!announcements || announcements.length === 0) return null;
 
   const pinned = announcements.filter(a => a.pinned);
@@ -23,14 +23,16 @@ export default function AnnouncementsBanner({ announcements }) {
               whileInView={{ opacity: 1, x: 0 }}
               viewport={{ once: true }}
               transition={{ delay: i * 0.1 }}
-              className="bg-white/10 backdrop-blur-sm rounded-xl p-5 border border-white/10"
+              onClick={() => onViewAnnouncement && onViewAnnouncement(a)}
+              className="bg-white/10 backdrop-blur-sm rounded-xl p-5 border border-white/10 cursor-pointer hover:bg-white/20 transition-all group"
             >
               <div className="flex items-start gap-3">
                 {a.pinned && <Pin className="w-4 h-4 text-[#c8a951] mt-0.5 shrink-0" />}
-                <div>
-                  <h4 className="font-semibold text-white text-sm mb-1">{a.title}</h4>
+                <div className="flex-1">
+                  <h4 className="font-semibold text-white text-sm mb-1 group-hover:text-[#c8a951] transition-colors">{a.title}</h4>
                   <p className="text-white/60 text-sm leading-relaxed line-clamp-2">{a.content}</p>
                 </div>
+                <Info className="w-4 h-4 text-white/30 group-hover:text-white/80 transition-colors shrink-0" />
               </div>
             </motion.div>
           ))}

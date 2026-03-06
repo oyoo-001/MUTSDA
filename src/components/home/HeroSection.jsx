@@ -2,10 +2,10 @@ import React from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import { Button } from "@/components/ui/button";
-import { Play, Calendar, ArrowRight } from "lucide-react";
+import { Play, Calendar, Radio } from "lucide-react";
 import { motion } from "framer-motion";
 
-export default function HeroSection() {
+export default function HeroSection({ isLive }) {
   return (
     <section className="relative min-h-[85vh] flex items-center overflow-hidden">
       {/* Background image */}
@@ -61,6 +61,14 @@ export default function HeroSection() {
             transition={{ duration: 0.8, delay: 0.3 }}
             className="flex flex-wrap gap-4"
           >
+            {isLive && (
+              <Link to={createPageUrl("Live")}>
+                <Button size="lg" className="bg-red-600 hover:bg-red-700 text-white font-semibold gap-2 px-6 animate-pulse">
+                  <Radio className="w-4 h-4" />
+                  Watch Live Now
+                </Button>
+              </Link>
+            )}
             <Link to={createPageUrl("Events")}>
               <Button size="lg" className="bg-[#c8a951] hover:bg-[#b89941] text-[#1a2744] font-semibold gap-2 px-6">
                 <Calendar className="w-4 h-4" />
@@ -68,7 +76,7 @@ export default function HeroSection() {
               </Button>
             </Link>
             <Link to={createPageUrl("Sermons")}>
-              <Button size="lg" variant="outline" className="bg-[#c8a951] text-black hover:bg-white/10 gap-2 px-6">
+              <Button size="lg" variant="outline" className="bg-transparent text-white border-white/50 hover:bg-white/10 hover:text-white gap-2 px-6">
                 <Play className="w-4 h-4" />
                 Watch Sermons
               </Button>

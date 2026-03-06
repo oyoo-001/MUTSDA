@@ -9,6 +9,7 @@ import AuthPage from './pages/Auth';
 import ChatPage from './pages/Chat';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { Church } from 'lucide-react';
+import Live from './pages/Live';
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -54,6 +55,7 @@ const AuthenticatedApp = () => {
       }
       />
       <Route path="/reset-password/:token" element={<ResetPasswordPage />} />
+      <Route path="/Live" element={<Live />} />
 
       <Route path="/" element={
         <LayoutWrapper currentPageName={mainPageKey}>

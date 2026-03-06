@@ -16,9 +16,11 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import AdminSupportModal from "@/components/admin/AdminSupportModal";
+import NewsTicker from "@/components/NewsTicker";
 
 const publicNav = [
   { name: "Home", page: "Home", icon: Home },
+  { name: "Live", page: "Live", icon: Radio },
   { name: "About", page: "About", icon: Church },
   { name: "Sermons", page: "Sermons", icon: BookOpen },
   { name: "Events", page: "Events", icon: Calendar },
@@ -76,9 +78,7 @@ export default function Layout({ children, currentPageName }) {
       setIsLive(activeStreams.length > 0);
     });
 
-    return () => {
-      signalingSocket.disconnect();
-    };
+    return () => signalingSocket.disconnect();
   }, []);
 
   // Global Real-time Notifications & Data Refresh
@@ -150,6 +150,9 @@ export default function Layout({ children, currentPageName }) {
         </div>
       </div>
 
+      {/* Live News Ticker */}
+      <NewsTicker />
+
       {/* Main nav */}
       <header className={`sticky top-0 z-50 transition-all duration-300 ${
         scrolled
@@ -184,15 +187,6 @@ export default function Layout({ children, currentPageName }) {
 </Link>
             {/* Desktop nav */}
             <nav className="hidden lg:flex items-center gap-1">
-              {isLive && (
-                <Link
-                  to={createPageUrl("Sermons")} // Links to a page where the Viewer component might be
-                  className="px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center bg-red-100 text-red-600 animate-pulse"
-                >
-                  <Radio className="w-4 h-4 mr-1.5" />
-                  LIVE
-                </Link>
-              )}
               {publicNav.map(item => (
                 <Link
                   key={item.page}
@@ -207,6 +201,11 @@ export default function Layout({ children, currentPageName }) {
                   {item.name === "Chat" && user && unreadChatCount > 0 && (
                     <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
                       {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
+                  {item.name === "Live" && isLive && (
+                    <span className="ml-2 bg-red-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded animate-pulse">
+                      LIVE
                     </span>
                   )}
                 </Link>
@@ -277,16 +276,6 @@ export default function Layout({ children, currentPageName }) {
         {mobileOpen && (
           <div className="lg:hidden border-t bg-white shadow-lg">
             <nav className="p-4 space-y-1">
-              {isLive && (
-                <Link
-                  to={createPageUrl("Sermons")}
-                  onClick={() => setMobileOpen(false)}
-                  className="flex items-center gap-3 px-4 py-3 rounded-lg text-sm font-medium bg-red-50 text-red-600"
-                >
-                  <Radio className="w-4 h-4" />
-                  LIVE NOW
-                </Link>
-              )}
               {publicNav.map(item => (
                 <Link
                   key={item.page}
@@ -303,6 +292,11 @@ export default function Layout({ children, currentPageName }) {
                   {item.name === "Chat" && user && unreadChatCount > 0 && (
                     <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
                       {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
+                  {item.name === "Live" && isLive && (
+                    <span className="ml-auto bg-red-600 text-white text-[10px] font-bold px-2 py-0.5 rounded animate-pulse">
+                      LIVE
                     </span>
                   )}
                 </Link>

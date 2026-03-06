@@ -11,6 +11,7 @@ import AnnouncementsBanner from "@/components/home/AnnouncementsBanner";
 import { toast } from "sonner";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
+import { X } from "lucide-react";
 
 const getYouTubeId = (url) => {
   if (!url) return null;
@@ -21,6 +22,7 @@ const getYouTubeId = (url) => {
 export default function Home() {
   const queryClient = useQueryClient();
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
+  const [isLive, setIsLive] = useState(false);
 
   // 1. Fetch Events
   const { data: events = [] } = useQuery({
@@ -56,13 +58,24 @@ export default function Home() {
     initialData: [],
   });
 
+  // 4. Live Stream Status
+  useEffect(() => {
+    const signalingSocket = io(SOCKET_URL);
+
+    signalingSocket.on('live_streams_update', (activeStreams) => {
+      setIsLive(activeStreams.length > 0);
+    });
+
+    return () => {
+      signalingSocket.disconnect();
+    };
+  }, []);
+
   return (
     <div className="space-y-0">
       <Dialog open={!!viewingAnnouncement} onOpenChange={() => setViewingAnnouncement(null)}>
-        <DialogContent className="max-w-2xl bg-white rounded-2xl p-0">
-          {viewingAnnouncement?.banner_image_url && (
-            <img src={viewingAnnouncement.banner_image_url} alt={viewingAnnouncement.title} className="w-full h-64 object-cover rounded-t-2xl" />
-          )}
+        <DialogContent className="max-w-sm max-h-full  rounded-2xl p-0">
+          
           <DialogHeader className="p-6 pb-2">
             <DialogTitle className="text-2xl font-bold text-[#1a2744]">{viewingAnnouncement?.title}</DialogTitle>
           </DialogHeader>
@@ -80,7 +93,7 @@ export default function Home() {
         </DialogContent>
       </Dialog>
 
-      <HeroSection />
+      <HeroSection isLive={isLive} />
       
       {/* Placing the Banner prominently below the Hero. 
         The check Array.isArray(announcements) && announcements.length > 0 

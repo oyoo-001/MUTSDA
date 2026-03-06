@@ -2,6 +2,8 @@ import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
+import Viewer from './Viewer';
+import NewsTicker from './src/components/NewsTicker';
 
 const Broadcaster = ({ streamId = 'default' }) => {
   const [cameras, setCameras] = useState([]);
@@ -14,6 +16,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [isCameraActive, setIsCameraActive] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
   const [videoEnabled, setVideoEnabled] = useState(true);
+  const [remoteStreamActive, setRemoteStreamActive] = useState(false);
   
   const videoRef = useRef(null);
   const socketRef = useRef(null);
@@ -52,6 +55,26 @@ const Broadcaster = ({ streamId = 'default' }) => {
       stopStream();
     };
   }, []);
+
+  // Check for existing streams on mount and updates
+  useEffect(() => {
+    const statusSocket = io(SOCKET_URL);
+    
+    statusSocket.on('connect', () => {
+      statusSocket.emit('get_live_streams');
+    });
+
+    statusSocket.on('live_streams_update', (streams) => {
+      // If streamId is active but WE are not streaming, then someone else is.
+      if (streams.includes(streamId) && !isStreaming) {
+        setRemoteStreamActive(true);
+      } else if (!isStreaming) {
+        setRemoteStreamActive(false);
+      }
+    });
+
+    return () => statusSocket.disconnect();
+  }, [streamId, isStreaming]);
 
   const enableCamera = async () => {
     setPermissionError(null);
@@ -300,6 +323,23 @@ const Broadcaster = ({ streamId = 'default' }) => {
     }
   };
 
+  if (remoteStreamActive) {
+    return (
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
+        <div className="p-4 border-b border-slate-100 bg-amber-50 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-amber-800 flex items-center gap-2">
+            <AlertTriangle className="w-5 h-5" />
+            Stream in Progress
+          </h2>
+          <span className="text-xs text-amber-700 font-medium">Another admin is currently streaming. You can watch below.</span>
+        </div>
+        <div className="p-6">
+          <Viewer streamId={streamId} isBroadcasting={true} />
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
       {/* Header */}
@@ -360,6 +400,10 @@ const Broadcaster = ({ streamId = 'default' }) => {
             className={`w-full h-full object-cover ${!isCameraActive && 'opacity-50'}`}
           ></video>
           
+          <div className="absolute top-0 left-0 right-0 z-10">
+            <NewsTicker />
+          </div>
+
           {!isCameraActive && (
             <div className="absolute inset-0 flex items-center justify-center">
               <div className="text-slate-500 flex flex-col items-center">

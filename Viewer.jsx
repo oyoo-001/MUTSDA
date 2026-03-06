@@ -3,7 +3,7 @@ import io from 'socket.io-client';
 import { SOCKET_URL } from './src/api/base44Client';
 import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2 } from 'lucide-react';
 
-const Viewer = ({ streamId = 'default' }) => {
+const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = "Stream Offline" }) => {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
@@ -13,6 +13,11 @@ const Viewer = ({ streamId = 'default' }) => {
   const [status, setStatus] = useState('connecting'); // connecting, live, offline
 
   useEffect(() => {
+    if (!isBroadcasting) {
+      setStatus('offline');
+      return;
+    }
+
     socketRef.current = io(SOCKET_URL);
     
     socketRef.current.on('viewer_count', (count) => {
@@ -75,7 +80,7 @@ const Viewer = ({ streamId = 'default' }) => {
       if (socketRef.current) socketRef.current.disconnect();
       if (peerConnectionRef.current) peerConnectionRef.current.close();
     };
-  }, [streamId]);
+  }, [streamId, isBroadcasting]);
 
   const toggleMute = () => {
       if (videoRef.current) {
@@ -118,7 +123,7 @@ const Viewer = ({ streamId = 'default' }) => {
           <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-900 text-white">
               <div className="flex flex-col items-center">
                   <Radio className="w-12 h-12 mb-2 text-gray-600" />
-                  <span className="text-sm font-medium text-gray-400">Stream Offline</span>
+                  <span className="text-sm font-medium text-gray-400">{offlineMessage}</span>
               </div>
           </div>
       )}

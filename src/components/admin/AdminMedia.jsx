@@ -168,9 +168,13 @@ export default function AdminMedia({ media }) {
             {uploadProgress > 0 && (
               <div className="h-1 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951]" style={{ width: `${uploadProgress}%` }} /></div>
             )}
-            {(form.file_url || uploadedItems.length > 0) && (
-              <p className="text-xs text-green-600">{uploadedItems.length > 1 ? `${uploadedItems.length} files uploaded ✓` : "File uploaded ✓"}</p>
+            {(uploadedItems.length > 0 || form.file_url) && (
+              <p className="text-xs text-green-600">{uploadedItems.length > 1 ? `${uploadedItems.length} files uploaded ✓` : "File/URL ready ✓"}</p>
             )}
+            <div>
+              <Label>Or Enter URL (e.g. YouTube)</Label>
+              <Input value={uploadedItems.length === 0 ? form.file_url || "" : ""} onChange={e => setForm({ ...form, file_url: e.target.value })} placeholder="https://www.youtube.com/watch?v=..." disabled={uploadedItems.length > 0} />
+            </div>
             <div><Label>Type</Label>
               <Select value={form.media_type} onValueChange={v => setForm({ ...form, media_type: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>

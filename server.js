@@ -1052,6 +1052,7 @@ app.use('/api/core', protect, admin, coreRouter);
 const supportQueue = []; // Array of { id, name, email, socketId }
 let activeSupportSession = null; // { adminSocketId, userSocketId, room, user }
 const onlineUsers = new Map(); // Map<socket.id, userObject>
+let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "#c8a951" }; // Store the active news ticker message and color
 const activeStreams = new Set();
 const broadcasters = {}; // streamId -> socketId
 
@@ -1071,8 +1072,26 @@ io.on('connection', (socket) => {
     console.log(`Socket ${socket.id} left room ${room}`);
   });
 
+  // --- NEWS TICKER ---
+  socket.emit('ticker_update', currentTickerState); // Send current ticker to new connection
+
+  socket.on('admin_update_ticker', (newState) => {
+    currentTickerState = { ...currentTickerState, ...newState };
+    io.emit('ticker_update', currentTickerState); // Broadcast to all
+    console.log(`Ticker updated:`, currentTickerState);
+  });
+
   // --- LIVE STREAMING SIGNALING ---
+  socket.on('get_live_streams', () => {
+    socket.emit('live_streams_update', Array.from(activeStreams));
+  });
+
   socket.on('broadcaster', (streamId) => {
+    if (broadcasters[streamId] && broadcasters[streamId] !== socket.id) {
+      // Stream is already active by another socket
+      socket.emit('stream_error', { message: 'Stream is already active by another admin.' });
+      return;
+    }
     broadcasters[streamId] = socket.id;
     activeStreams.add(streamId);
     socket.streamId = streamId;
