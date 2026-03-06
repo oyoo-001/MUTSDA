@@ -1,5 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { apiClient } from "@/api/base44Client";
+import axios from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Plus, Edit, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+import { io } from "socket.io-client";
 
 const eventCategories = ["worship", "youth", "outreach", "fellowship", "seminar", "camp_meeting", "special"];
 
@@ -30,6 +32,40 @@ export default function AdminEvents({ events }) {
   });
   const [saving, setSaving] = useState(false);
   const [eventToDelete, setEventToDelete] = useState(null);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const uploadFileWithProgress = async (file, onProgress) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+    
+    const response = await axios.post('/api/chatmessages/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      }
+    });
+    return response.data;
+  };
+
+  useEffect(() => {
+    const VITE_API_URL = import.meta.env.VITE_API_URL || 'https://mutsda.onrender.com';
+    const socket = io(VITE_API_URL, { transports: ['websocket'] });
+
+    socket.on('events_updated', () => {
+      console.log('Received events update from server. Invalidating admin-events.');
+      toast.info('The events list has been updated.');
+      queryClient.invalidateQueries({ queryKey: ['admin-events'] });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [queryClient]);
 
   const openNew = () => {
     setEditing(null);
@@ -72,9 +108,15 @@ export default function AdminEvents({ events }) {
   const handleBannerUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const { file_url } = await apiClient.integrations.Core.UploadFile({ file });
-    setForm(f => ({ ...f, banner_image_url: file_url }));
-    toast.success("Banner uploaded!");
+    try {
+      const { file_url } = await uploadFileWithProgress(file, setUploadProgress);
+      setForm(f => ({ ...f, banner_image_url: file_url }));
+      toast.success("Banner uploaded!");
+    } catch (error) {
+      toast.error("Upload failed");
+    } finally {
+      setUploadProgress(0);
+    }
   };
 
   return (
@@ -140,7 +182,16 @@ export default function AdminEvents({ events }) {
                 <SelectContent>{eventCategories.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g, " ")}</SelectItem>)}</SelectContent>
               </Select>
             </div>
-            <div><Label>Banner Image</Label><Input type="file" accept="image/*" onChange={handleBannerUpload} /></div>
+            <div>
+              <Label>Banner Image</Label>
+              <Input type="file" accept="image/*" onChange={handleBannerUpload} />
+              {uploadProgress > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951] transition-all duration-300" style={{ width: `${uploadProgress}%` }} /></div>
+                  <p className="text-xs text-gray-500 text-right">{uploadProgress}% Uploading...</p>
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-4">
               <div className="flex items-center gap-2"><Switch checked={form.rsvp_enabled} onCheckedChange={v => setForm({ ...form, rsvp_enabled: v })} /><Label>Enable RSVP</Label></div>
               <div className="flex items-center gap-2"><Switch checked={form.published} onCheckedChange={v => setForm({ ...form, published: v })} /><Label>Published</Label></div>

@@ -3,7 +3,7 @@ import { apiClient } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, Film, FileText, X, AlertTriangle, Play, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Image as ImageIcon, Film, FileText, X, AlertTriangle, Play, ChevronLeft, ChevronRight, Download, Music } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import {
@@ -137,6 +137,9 @@ export default function Gallery() {
               <TabsTrigger value="video" className="gap-2">
                 <Film className="w-4 h-4" /> Videos
               </TabsTrigger>
+              <TabsTrigger value="audio" className="gap-2">
+                <Music className="w-4 h-4" /> Audio
+              </TabsTrigger>
               <TabsTrigger value="document" className="gap-2">
                 <FileText className="w-4 h-4" /> Docs
               </TabsTrigger>
@@ -196,6 +199,15 @@ export default function Gallery() {
                     {item.media_type === 'video' && (
                       <video src={item.file_url} className="w-full h-full object-cover" />
                     )}
+                    {item.media_type === 'audio' && (
+                      <div className="w-full h-full flex flex-col items-center justify-center bg-slate-100 relative">
+                        {item.cover_image_url ? (
+                          <img src={item.cover_image_url} alt={item.title} className="absolute inset-0 w-full h-full object-cover opacity-60" />
+                        ) : (
+                          <Music className="w-16 h-16 text-slate-400 z-10" />
+                        )}
+                      </div>
+                    )}
                     {item.media_type === 'document' && (
                       <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-slate-50 group-hover:bg-slate-100 transition-colors">
                         <FileText className="w-16 h-16 text-slate-300 group-hover:text-[#c8a951] transition-colors" />
@@ -204,7 +216,7 @@ export default function Gallery() {
                     )}
                     
                     {/* Play Icon for Videos */}
-                    {item.media_type === "video" && (
+                    {(item.media_type === "video" || item.media_type === "audio") && (
                       <div className="absolute inset-0 flex items-center justify-center bg-black/10">
                         <div className="bg-white/90 p-2 rounded-full shadow-lg">
                           <Play className="w-5 h-5 text-[#1a2744] fill-current" />
@@ -271,6 +283,15 @@ export default function Gallery() {
                     autoPlay 
                     className="w-full h-full"
                   />
+                </div>
+              ) : selected.media_type === "audio" ? (
+                <div className="w-full max-w-md bg-white p-6 rounded-2xl shadow-2xl flex flex-col items-center">
+                  {selected.cover_image_url ? (
+                    <img src={selected.cover_image_url} alt={selected.title} className="w-64 h-64 object-cover rounded-xl shadow-md mb-6" />
+                  ) : (
+                    <div className="w-64 h-64 bg-slate-100 rounded-xl flex items-center justify-center mb-6"><Music className="w-24 h-24 text-slate-300" /></div>
+                  )}
+                  <audio src={selected.file_url} controls autoPlay className="w-full" />
                 </div>
               ) : selected.media_type === "document" ? (
                 <div className="w-full h-[80vh] bg-white rounded-lg overflow-hidden">

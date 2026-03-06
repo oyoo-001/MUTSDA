@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiClient } from "@/api/base44Client";
+import axios from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -17,18 +18,37 @@ export default function AdminAnnouncements({ announcements, members }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [form, setForm] = useState({ title: "", content: "", category: "general", pinned: false, published: true });
+  const [form, setForm] = useState({ title: "", content: "", category: "general", pinned: false, published: true, banner_image_url: "" });
   const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const uploadFileWithProgress = async (file, onProgress) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+    
+    const response = await axios.post('/api/chatmessages/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      }
+    });
+    return response.data;
+  };
 
   const openNew = () => {
     setEditing(null);
-    setForm({ title: "", content: "", category: "general", pinned: false, published: true });
+    setForm({ title: "", content: "", category: "general", pinned: false, published: true, banner_image_url: "" });
     setDialogOpen(true);
   };
 
   const openEdit = (a) => {
     setEditing(a);
-    setForm({ title: a.title, content: a.content, category: a.category || "general", pinned: a.pinned || false, published: a.published !== false });
+    setForm({ title: a.title, content: a.content, category: a.category || "general", pinned: a.pinned || false, published: a.published !== false, banner_image_url: a.banner_image_url || "" });
     setDialogOpen(true);
   };
 
@@ -67,6 +87,20 @@ export default function AdminAnnouncements({ announcements, members }) {
     toast.success("Emails sent to members!");
   };
 
+  const handleBannerUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { file_url } = await uploadFileWithProgress(file, setUploadProgress);
+      setForm(f => ({ ...f, banner_image_url: file_url }));
+      toast.success("Banner uploaded!");
+    } catch (error) {
+      toast.error("Upload failed");
+    } finally {
+      setUploadProgress(0);
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -85,6 +119,9 @@ export default function AdminAnnouncements({ announcements, members }) {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1">
                   <div className="flex items-center gap-2 mb-2">
+                    {a.banner_image_url && (
+                      <img src={a.banner_image_url} alt="Banner" className="w-10 h-10 rounded object-cover border" />
+                    )}
                     {a.pinned && <Pin className="w-3.5 h-3.5 text-[#c8a951]" />}
                     <h3 className="font-semibold text-[#1a2744]">{a.title}</h3>
                     <Badge variant="secondary" className="text-xs capitalize">{a.category}</Badge>
@@ -123,6 +160,17 @@ export default function AdminAnnouncements({ announcements, members }) {
                   <SelectItem value="youth">Youth</SelectItem>
                 </SelectContent>
               </Select>
+            </div>
+            <div>
+              <Label>Banner Image</Label>
+              <Input type="file" accept="image/*" onChange={handleBannerUpload} />
+              {uploadProgress > 0 && (
+                <div className="mt-2 space-y-1">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951] transition-all duration-300" style={{ width: `${uploadProgress}%` }} /></div>
+                  <p className="text-xs text-gray-500 text-right">{uploadProgress}% Uploading...</p>
+                </div>
+              )}
+              {form.banner_image_url && <img src={form.banner_image_url} alt="Preview" className="mt-2 h-20 rounded border" />}
             </div>
             <div className="flex gap-6">
               <div className="flex items-center gap-2"><Switch checked={form.pinned} onCheckedChange={v => setForm({ ...form, pinned: v })} /><Label>Pin</Label></div>

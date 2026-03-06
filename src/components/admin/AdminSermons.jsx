@@ -206,6 +206,12 @@ export default function AdminSermons({ sermons }) {
                 <Input type="file" accept="audio/*" onChange={e => handleFileUpload(e, "audio_url")} />
                 {form.audio_url && <Music className="w-5 h-5 text-green-600 shrink-0" />}
               </div>
+              {uploadProgress > 0 && !form.video_link && (
+                <div className="mt-2 space-y-1">
+                  <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951] transition-all duration-300" style={{ width: `${uploadProgress}%` }} /></div>
+                  <p className="text-xs text-gray-500 text-right">{uploadProgress}% Uploading...</p>
+                </div>
+              )}
               {form.audio_url && <p className="text-xs text-green-600 mt-1">Audio uploaded</p>}
             </div>
             <div>

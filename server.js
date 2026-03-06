@@ -139,15 +139,17 @@ const Announcement = sequelize.define('Announcement', {
   category: { type: DataTypes.ENUM('general', 'urgent', 'event', 'ministry', 'youth'), defaultValue: 'general' },
   pinned: { type: DataTypes.BOOLEAN, defaultValue: false },
   published: { type: DataTypes.BOOLEAN, defaultValue: true },
+  banner_image_url: DataTypes.STRING,
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
 const MediaItem = sequelize.define('MediaItem', {
   title: DataTypes.STRING,
   description: DataTypes.TEXT,
-  media_type: { type: DataTypes.ENUM('photo', 'video', 'document'), defaultValue: 'photo' },
+  media_type: { type: DataTypes.ENUM('photo', 'video', 'document', 'audio'), defaultValue: 'photo' },
   album: DataTypes.STRING,
   event_name: DataTypes.STRING,
   file_url: { type: DataTypes.STRING, allowNull: false },
+  cover_image_url: DataTypes.STRING,
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
 const ContactMessage = sequelize.define('ContactMessage', {

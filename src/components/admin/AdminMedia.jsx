@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { apiClient } from "@/api/base44Client";
+import axios from "axios";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,20 +13,40 @@ import { toast } from "sonner";
 export default function AdminMedia({ media }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [form, setForm] = useState({ title: "", description: "", media_type: "photo", album: "", event_name: "" });
+  const [form, setForm] = useState({ title: "", description: "", media_type: "photo", album: "", event_name: "", cover_image_url: "" });
   const [saving, setSaving] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  const uploadFileWithProgress = async (file, onProgress) => {
+    const formData = new FormData();
+    formData.append("file", file);
+    const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+    
+    const response = await axios.post('/api/chatmessages/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {})
+      },
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      }
+    });
+    return response.data;
+  };
 
   const handleUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    const { file_url } = await apiClient.integrations.Core.UploadFile({ file });
-    
-    let type = "photo";
-    if (file.type.startsWith("video/")) type = "video";
-    else if (file.type === "application/pdf") type = "document";
-
-    setForm(f => ({ ...f, file_url, media_type: type }));
-    toast.success("File uploaded!");
+    try {
+      const { file_url, mediaType } = await uploadFileWithProgress(file, setUploadProgress);
+      let type = mediaType === 'image' ? 'photo' : mediaType;
+      if (file.type === "application/pdf") type = "document";
+      setForm(f => ({ ...f, file_url, media_type: type }));
+      toast.success("File uploaded!");
+    } finally {
+      setUploadProgress(0);
+    }
   };
 
   const handleSave = async () => {
@@ -33,7 +54,7 @@ export default function AdminMedia({ media }) {
     await apiClient.entities.MediaItem.create(form);
     setSaving(false);
     setDialogOpen(false);
-    setForm({ title: "", description: "", media_type: "photo", album: "", event_name: "" });
+    setForm({ title: "", description: "", media_type: "photo", album: "", event_name: "", cover_image_url: "" });
     toast.success("Media added!");
     queryClient.invalidateQueries({ queryKey: ["admin-media"] });
   };
@@ -43,6 +64,17 @@ export default function AdminMedia({ media }) {
     await apiClient.entities.MediaItem.delete(id);
     toast.success("Deleted");
     queryClient.invalidateQueries({ queryKey: ["admin-media"] });
+  };
+
+  const handleCoverUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      const { file_url } = await uploadFileWithProgress(file, setUploadProgress);
+      setForm(f => ({ ...f, cover_image_url: file_url }));
+    } finally {
+      setUploadProgress(0);
+    }
   };
 
   return (
@@ -65,6 +97,12 @@ export default function AdminMedia({ media }) {
               )}
               {item.media_type === "video" && (
                 <video src={item.file_url} className="w-full aspect-square object-cover" controls />
+              )}
+              {item.media_type === "audio" && (
+                <div className="w-full aspect-square flex flex-col items-center justify-center bg-slate-100 relative">
+                  {item.cover_image_url && <img src={item.cover_image_url} alt="cover" className="absolute inset-0 w-full h-full object-cover opacity-50" />}
+                  <div className="z-10 p-2 bg-white/80 rounded-full"><Film className="w-6 h-6 text-purple-600" /></div>
+                </div>
               )}
               {item.media_type === "document" && (
                 <div className="w-full aspect-square flex flex-col items-center justify-center p-4 text-center">
@@ -96,6 +134,9 @@ export default function AdminMedia({ media }) {
           <div className="space-y-4 py-2">
             <div><Label>Title *</Label><Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></div>
             <div><Label>File *</Label><Input type="file" accept="image/*,video/*,.pdf" onChange={handleUpload} /></div>
+            {uploadProgress > 0 && (
+              <div className="h-1 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951]" style={{ width: `${uploadProgress}%` }} /></div>
+            )}
             {form.file_url && <p className="text-xs text-green-600">File uploaded ✓</p>}
             <div><Label>Type</Label>
               <Select value={form.media_type} onValueChange={v => setForm({ ...form, media_type: v })}>
@@ -103,10 +144,18 @@ export default function AdminMedia({ media }) {
                 <SelectContent>
                   <SelectItem value="photo">Photo</SelectItem>
                   <SelectItem value="video">Video</SelectItem>
+                  <SelectItem value="audio">Audio</SelectItem>
                   <SelectItem value="document">Document</SelectItem>
                 </SelectContent>
               </Select>
             </div>
+            {form.media_type === 'audio' && (
+              <div>
+                <Label>Cover Photo (Optional)</Label>
+                <Input type="file" accept="image/*" onChange={handleCoverUpload} />
+                {form.cover_image_url && <img src={form.cover_image_url} alt="Cover" className="h-16 w-16 object-cover mt-2 rounded" />}
+              </div>
+            )}
             <div><Label>Album</Label><Input value={form.album} onChange={e => setForm({ ...form, album: e.target.value })} placeholder="e.g., Camp Meeting 2025" /></div>
             <div><Label>Related Event</Label><Input value={form.event_name} onChange={e => setForm({ ...form, event_name: e.target.value })} /></div>
           </div>
