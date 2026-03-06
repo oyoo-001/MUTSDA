@@ -71,7 +71,7 @@ export default function Sermons() {
     <div className="min-h-screen bg-[#faf8f2]">
       {/* Video Playback Modal */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
-        <DialogContent className="max-w-4xl p-0 bg-black border-none overflow-hidden sm:rounded-2xl">
+        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl p-0 bg-black border-none overflow-hidden rounded-2xl">
           <DialogHeader className="sr-only">
             <DialogTitle>{selectedVideo?.title}</DialogTitle>
           </DialogHeader>
