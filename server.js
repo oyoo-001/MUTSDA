@@ -49,7 +49,7 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
-app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/ping', (req, res) => res.status(200).send('OK'));
 // -----------------------------------------------------------------------------
 // 3. DATABASE SETUP (from database.js)
 // -----------------------------------------------------------------------------
@@ -324,7 +324,7 @@ const createStyledEmail = (title, content) => {
 };
 
 // Generic Controller Factory for simple CRUD
-const createController = (model) => ({
+const createController = (model, namespace) => ({
   getAll: async (req, res) => {
     try {
       // Basic filtering from query params
@@ -350,6 +350,9 @@ const createController = (model) => ({
   create: async (req, res) => {
     try {
       const item = await model.create(req.body);
+      if (namespace && req.app.get('io')) {
+        req.app.get('io').emit(`${namespace}_updated`);
+      }
       res.status(201).json(item);
     } catch (err) {
       console.error(`Error in ${model.name} create:`, err);
@@ -361,6 +364,9 @@ const createController = (model) => ({
       const item = await model.findByPk(req.params.id);
       if (!item) return res.status(404).json({ message: 'Item not found' });
       await item.update(req.body);
+      if (namespace && req.app.get('io')) {
+        req.app.get('io').emit(`${namespace}_updated`);
+      }
       res.json(item);
     } catch (err) {
       console.error(`Error in ${model.name} update:`, err);
@@ -372,6 +378,9 @@ const createController = (model) => ({
       const item = await model.findByPk(req.params.id);
       if (!item) return res.status(404).json({ message: 'Item not found' });
       await item.destroy();
+      if (namespace && req.app.get('io')) {
+        req.app.get('io').emit(`${namespace}_updated`);
+      }
       res.json({ message: 'Item removed' });
     } catch (err) {
       console.error(`Error in ${model.name} delete:`, err);
@@ -475,6 +484,9 @@ const authController = {
       console.log('Advise user to log in and change their password, or use the "Forgot Password" feature.');
       console.log('--------------------');
 
+      if (req.app.get('io')) {
+        req.app.get('io').emit('users_updated');
+      }
       res.status(201).json(user);
     } catch (err) {
       console.error('INVITE ERROR:', err);
@@ -607,7 +619,7 @@ const authController = {
 };
 
 const sermonController = {
-  ...createController(Sermon),
+  ...createController(Sermon, 'sermons'),
   getAll: async (req, res) => { // Override to only show published
     try {
       const sermons = await Sermon.findAll({
@@ -623,7 +635,7 @@ const sermonController = {
 };
 
 const eventController = {
-  ...createController(Event),
+  ...createController(Event, 'events'),
   getAll: async (req, res) => { // Override to only show published
     try {
       const events = await Event.findAll({
@@ -639,7 +651,7 @@ const eventController = {
 };
 
 const announcementController = {
-  ...createController(Announcement),
+  ...createController(Announcement, 'announcements'),
   getAll: async (req, res) => { // Override to only show published & pinned first
     try {
       const announcements = await Announcement.findAll({
@@ -655,7 +667,7 @@ const announcementController = {
 };
 
 const contactMessageController = {
-  ...createController(ContactMessage),
+  ...createController(ContactMessage, 'contact_messages'),
   markAsRead: async (req, res) => {
     try {
       const message = await ContactMessage.findByPk(req.params.id);
@@ -670,7 +682,7 @@ const contactMessageController = {
 };
 
 const donationController = {
-  ...createController(Donation),
+  ...createController(Donation, 'donations'),
   create: async (req, res) => {
     const { transaction_reference, amount } = req.body;
 
@@ -730,6 +742,9 @@ const donationController = {
       
       const donation = await Donation.create(donationPayload);
       console.log(`Donation logged successfully: ID ${donation.id} - Ref ${transaction_reference}`);
+      if (req.app.get('io')) {
+        req.app.get('io').emit('donations_updated');
+      }
       res.status(201).json(donation);
     } catch (err) {
       console.error(`Error in Donation create/verify:`, err);
@@ -765,6 +780,9 @@ const donationController = {
             await donation.update({ status: 'success' });
           }
           console.log(`Webhook: Transaction ${reference} verified successfully.`);
+          if (req.app.get('io')) {
+            req.app.get('io').emit('donations_updated');
+          }
         } catch (error) {
           console.error('Webhook DB Error:', error);
         }
@@ -775,9 +793,9 @@ const donationController = {
     }
   }
 };
-const mediaItemController = createController(MediaItem);
+const mediaItemController = createController(MediaItem, 'media');
 const userController = {
-  ...createController(User),
+  ...createController(User, 'users'),
   // Override to exclude password hash from lists
   getAll: async (req, res) => {
     try {
@@ -792,11 +810,11 @@ const userController = {
     }
   },
 };
-const rsvpController = createController(RSVP);
-const chatMessageController = createController(ChatMessage);
+const rsvpController = createController(RSVP, 'rsvps');
+const chatMessageController = createController(ChatMessage, 'chat');
 
 const chatGroupController = {
-  ...createController(ChatGroup),
+  ...createController(ChatGroup, 'chat-groups'),
   getAll: async (req, res) => {
     try {
       const groups = await ChatGroup.findAll({
