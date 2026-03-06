@@ -1,13 +1,13 @@
 import React, { useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-
+import { SOCKET_URL } from './src/api/base44Client';
 const Viewer = ({ streamId = 'default' }) => {
   const videoRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
 
   useEffect(() => {
-    socketRef.current = io('http://localhost:4000'); // Adjust URL to your server
+     socketRef.current = io(SOCKET_URL);
 
     const pc = new RTCPeerConnection({
       iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]

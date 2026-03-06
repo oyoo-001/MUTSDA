@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
 import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle } from 'lucide-react';
+import { SOCKET_URL } from './src/api/base44Client';
 
 const Broadcaster = ({ streamId = 'default' }) => {
   const [cameras, setCameras] = useState([]);
@@ -85,7 +86,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
     try {
 
       // Connect to signaling server
-      socketRef.current = io('http://localhost:4000'); // Updated to port 4000 to match socketServer.js
+      socketRef.current = io(SOCKET_URL);
       socketRef.current.emit('broadcaster', streamId);
 
       socketRef.current.on('viewer_count', (count) => {

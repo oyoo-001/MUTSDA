@@ -70,9 +70,7 @@ export default function Layout({ children, currentPageName }) {
 
   // Live Stream Status
   useEffect(() => {
-    // NOTE: This URL should ideally come from an environment variable
-    // and match the one used by the Broadcaster/Viewer components.
-    const signalingSocket = io('http://localhost:4000');
+    const signalingSocket = io(SOCKET_URL);
 
     signalingSocket.on('live_streams_update', (activeStreams) => {
       setIsLive(activeStreams.length > 0);

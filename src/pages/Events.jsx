@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiClient } from "@/api/base44Client";
+import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes, differenceInSeconds } from "date-fns";
@@ -86,7 +86,7 @@ export default function Events() {
 
   // Live Stream Status
   useEffect(() => {
-    const signalingSocket = io('http://localhost:4000');
+    const signalingSocket = io(SOCKET_URL);
 
     signalingSocket.on('live_streams_update', (activeStreams) => {
       setIsLive(activeStreams.includes('sermon-live'));

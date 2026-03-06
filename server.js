@@ -1052,6 +1052,8 @@ app.use('/api/core', protect, admin, coreRouter);
 const supportQueue = []; // Array of { id, name, email, socketId }
 let activeSupportSession = null; // { adminSocketId, userSocketId, room, user }
 const onlineUsers = new Map(); // Map<socket.id, userObject>
+const activeStreams = new Set();
+const broadcasters = {}; // streamId -> socketId
 
 const io = new Server(server, {
   cors: corsOptions,
@@ -1067,6 +1069,35 @@ io.on('connection', (socket) => {
   socket.on('leave', (room) => {
     socket.leave(room);
     console.log(`Socket ${socket.id} left room ${room}`);
+  });
+
+  // --- LIVE STREAMING SIGNALING ---
+  socket.on('broadcaster', (streamId) => {
+    broadcasters[streamId] = socket.id;
+    activeStreams.add(streamId);
+    socket.streamId = streamId;
+    socket.broadcast.emit('broadcaster');
+    io.emit('live_streams_update', Array.from(activeStreams));
+    console.log(`Stream started: ${streamId}`);
+  });
+
+  socket.on('watcher', (streamId) => {
+    const broadcasterId = broadcasters[streamId];
+    if (broadcasterId) {
+      io.to(broadcasterId).emit('watcher', socket.id);
+    }
+  });
+
+  socket.on('offer', (id, message) => {
+    io.to(id).emit('offer', socket.id, message);
+  });
+
+  socket.on('answer', (id, message) => {
+    io.to(id).emit('answer', socket.id, message);
+  });
+
+  socket.on('candidate', (id, message) => {
+    io.to(id).emit('candidate', socket.id, message);
   });
 
   // Admin is online and ready for support
@@ -1268,6 +1299,14 @@ io.on('connection', (socket) => {
       supportQueue.splice(queueIndex, 1);
       io.to('admins').emit('support_queue_update', supportQueue);
       console.log(`User ${socket.id} removed from support queue on disconnect.`);
+    }
+
+    // Stream cleanup
+    if (socket.streamId) {
+      activeStreams.delete(socket.streamId);
+      delete broadcasters[socket.streamId];
+      io.emit('live_streams_update', Array.from(activeStreams));
+      socket.broadcast.emit('disconnectPeer', socket.id);
     }
 
     if (activeSupportSession) {
