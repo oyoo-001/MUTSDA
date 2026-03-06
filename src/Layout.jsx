@@ -1,7 +1,10 @@
 import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
-import { apiClient } from "@/api/base44Client";
+import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { useQueryClient } from "@tanstack/react-query";
+import { io } from "socket.io-client";
+import { toast } from "sonner";
 import {
   Menu, X, ChevronDown, User, LogOut, LayoutDashboard,
   Church, BookOpen, Calendar, Heart, Mail, Image, Bell, Home, MessageSquare
@@ -32,6 +35,7 @@ export default function Layout({ children, currentPageName }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [scrolled, setScrolled] = useState(false);
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     const loadUser = async () => {
@@ -51,6 +55,39 @@ export default function Layout({ children, currentPageName }) {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Global Real-time Notifications & Data Refresh
+  useEffect(() => {
+    // Request permission for system notifications
+    if ("Notification" in window && Notification.permission !== "granted") {
+      Notification.requestPermission();
+    }
+
+    const socket = io(SOCKET_URL, { transports: ["websocket"] });
+    const icon = "https://res.cloudinary.com/dxzmo0roe/image/upload/v1772797527/Christian_Globe_Design_e3befu.jpg";
+
+    const handleUpdate = (title, message, queryKeys) => {
+      // 1. System Notification (Browser Popup)
+      if ("Notification" in window && Notification.permission === "granted") {
+        new Notification(title, { body: message, icon });
+      }
+
+      // 2. In-app Toast
+      toast.info(message, { description: title });
+
+      // 3. Refresh Data
+      if (queryKeys) {
+        queryKeys.forEach(key => queryClient.invalidateQueries({ queryKey: key }));
+      }
+    };
+
+    socket.on('events_updated', () => handleUpdate('Events Updated', 'New events have been posted!', [['events'], ['home-events'], ['admin-events']]));
+    socket.on('sermons_updated', () => handleUpdate('Sermons Updated', 'New sermons are available!', [['sermons'], ['home-sermons'], ['admin-sermons']]));
+    socket.on('announcements_updated', () => handleUpdate('New Announcement', 'Check out the latest announcements!', [['announcements'], ['home-announcements'], ['admin-announcements']]));
+    socket.on('media_updated', () => handleUpdate('Gallery Updated', 'New photos or videos added!', [['media'], ['admin-media']]));
+
+    return () => socket.disconnect();
+  }, [queryClient]);
 
   const isAdmin = user?.role === "admin";
   const isAdminPage = currentPageName === "AdminDashboard";

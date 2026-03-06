@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { apiClient } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
+import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes, differenceInSeconds } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -9,34 +9,45 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { io } from "socket.io-client";
 
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 60000);
+    const t = setInterval(() => setNow(new Date()), 1000);
     return () => clearInterval(t);
   }, []);
 
   const target = new Date(date);
-  if (isNaN(target.getTime()) || isPast(target)) return <span className="text-gray-400 text-xs">Event has passed</span>;
+  if (isNaN(target.getTime()) || isPast(target)) return null;
 
   const days = differenceInDays(target, now);
   const hours = differenceInHours(target, now) % 24;
   const mins = differenceInMinutes(target, now) % 60;
+  const seconds = differenceInSeconds(target, now) % 60;
+
+  const pad = (n) => n.toString().padStart(2, '0');
 
   return (
-    <div className="flex gap-2">
-      {[
-        { val: days, label: "days" },
-        { val: hours, label: "hrs" },
-        { val: mins, label: "min" },
-      ].map(t => (
-        <div key={t.label} className="bg-[#1a2744] text-white rounded-lg px-2.5 py-1.5 text-center min-w-[48px]">
-          <div className="text-sm font-bold">{t.val}</div>
-          <div className="text-[10px] text-white/60 uppercase">{t.label}</div>
-        </div>
-      ))}
+    <div className="flex items-center gap-1 bg-black text-[#c8a951] px-3 py-2 rounded-lg font-mono text-sm shadow-lg border border-[#c8a951]/30">
+      <div className="flex flex-col items-center min-w-[20px]">
+        <span className="text-lg font-bold leading-none">{pad(days)}</span>
+        <span className="text-[8px] opacity-60 uppercase">Day</span>
+      </div>
+      <span className="text-[#c8a951]/50 -mt-2">:</span>
+      <div className="flex flex-col items-center min-w-[20px]">
+        <span className="text-lg font-bold leading-none">{pad(hours)}</span>
+        <span className="text-[8px] opacity-60 uppercase">Hr</span>
+      </div>
+      <span className="text-[#c8a951]/50 -mt-2">:</span>
+      <div className="flex flex-col items-center min-w-[20px]">
+        <span className="text-lg font-bold leading-none">{pad(mins)}</span>
+        <span className="text-[8px] opacity-60 uppercase">Min</span>
+      </div>
+      <span className="text-[#c8a951]/50 -mt-2">:</span>
+      <div className="flex flex-col items-center min-w-[20px]">
+        <span className="text-lg font-bold leading-none">{pad(seconds)}</span>
+        <span className="text-[8px] opacity-60 uppercase">Sec</span>
+      </div>
     </div>
   );
 }
@@ -59,18 +70,6 @@ export default function Events() {
     };
     loadUser();
   }, []);
-
-  useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket'] });
-    socket.on('events_updated', () => {
-        toast.info('The events list has been updated.');
-        queryClient.invalidateQueries({ queryKey: ['events'] });
-    });
-
-    return () => {
-      socket.disconnect();
-    };
-  }, [queryClient]);
 
   // 1. Defensively fetch events
   const { data: eventsData, isLoading, isError, refetch } = useQuery({
@@ -240,7 +239,7 @@ export default function Events() {
                     )}
                     {event.video_link && (
                       <div className="absolute top-3 left-3 z-10">
-                        <Badge className="bg-red-600 text-white border-0 animate-pulse gap-1"><Video className="w-3 h-3" /> Live / Video</Badge>
+                        <Badge className="bg-red-600 text-white border-0 animate-pulse gap-1"><Video className="w-3 h-3" /> Live</Badge>
                       </div>
                     )}
                     <div className="p-6 flex-1">
@@ -250,7 +249,7 @@ export default function Events() {
                             {event.category.replace(/_/g, " ")}
                           </Badge>
                         )}
-                        {event.event_date && isPast(new Date(event.event_date)) && (
+                        {event.event_date && isPast(new Date(event.event_date)) && !event.video_link && (
                           <Badge variant="secondary" className="text-xs">Past</Badge>
                         )}
                       </div>

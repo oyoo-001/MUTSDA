@@ -1,12 +1,9 @@
-import React, { useEffect } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
+import React from 'react';
+import { useQuery } from '@tanstack/react-query';
 import { AlertTriangle, Megaphone } from 'lucide-react';
-import { apiClient, SOCKET_URL } from '@/api/base44Client';
-import { io } from 'socket.io-client';
-import { toast } from 'sonner';
+import { apiClient } from '@/api/base44Client';
 
 export function AnnouncementsBanner() {
-  const queryClient = useQueryClient();
   const {
     data: announcements,
     isLoading,
@@ -21,17 +18,6 @@ export function AnnouncementsBanner() {
     },
     initialData: [],
   });
-
-  useEffect(() => {
-    const socket = io(SOCKET_URL, { transports: ['websocket'] });
-
-    socket.on('announcements_updated', () => {
-      toast.info('Announcements have been updated.');
-      queryClient.invalidateQueries({ queryKey: ['announcements'] });
-    });
-
-    return () => socket.disconnect();
-  }, [queryClient]);
 
   /**
    * SAFETY CHECK: 

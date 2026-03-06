@@ -39,9 +39,9 @@ export default function Contact() {
             <h2 className="text-2xl font-bold text-[#1a2744] mb-6 font-serif">Church Information</h2>
             <div className="space-y-6">
               {[
-                { icon: MapPin, title: "Address", detail: "123 Faith Avenue, Nairobi, Kenya" },
-                { icon: Phone, title: "Phone", detail: "+254 700 000 000" },
-                { icon: Mail, title: "Email", detail: "info@sdachurch.org" },
+                { icon: MapPin, title: "Address", detail: "10200 Murang'a Road  , Murang'a, Kenya" },
+                { icon: Phone, title: "Phone", detail: "+254 7420 41208" },
+                { icon: Mail, title: "Email", detail: "info@mutsdachurch.com" },
                 { icon: Clock, title: "Office Hours", detail: "Mon-Thu: 8AM - 5PM, Fri: 8AM - 12PM" },
               ].map(item => (
                 <div key={item.title} className="flex items-start gap-4">
@@ -59,7 +59,7 @@ export default function Contact() {
             {/* Map placeholder */}
             <div className="mt-8 rounded-2xl overflow-hidden border h-64 bg-gray-100">
               <iframe
-                src="https://www.openstreetmap.org/export/embed.html?bbox=36.79%2C-1.30%2C36.83%2C-1.27&layer=mapnik"
+                 src="https://www.openstreetmap.org/export/embed.html?bbox=37.140%2C-0.720%2C37.155%2C-0.710&layer=mapnik&marker=-0.716%2C37.147"
                 className="w-full h-full border-0"
                 title="Church location"
               />
