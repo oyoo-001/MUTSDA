@@ -16,6 +16,7 @@ export default function AdminMedia({ media }) {
   const [form, setForm] = useState({ title: "", description: "", media_type: "photo", album: "", event_name: "", cover_image_url: "" });
   const [saving, setSaving] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedItems, setUploadedItems] = useState([]);
 
   const uploadFileWithProgress = async (file, onProgress) => {
     const formData = new FormData();
@@ -36,25 +37,49 @@ export default function AdminMedia({ media }) {
   };
 
   const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    try {
-      const { file_url, mediaType } = await uploadFileWithProgress(file, setUploadProgress);
-      let type = mediaType === 'image' ? 'photo' : mediaType;
-      if (file.type === "application/pdf") type = "document";
-      setForm(f => ({ ...f, file_url, media_type: type }));
+    const files = Array.from(e.target.files);
+    if (files.length === 0) return;
+
+    const newItems = [];
+    for (const file of files) {
+      try {
+        const { file_url, mediaType } = await uploadFileWithProgress(file, setUploadProgress);
+        let type = mediaType === 'image' ? 'photo' : mediaType;
+        if (file.type === "application/pdf") type = "document";
+        newItems.push({ file_url, media_type: type, original_name: file.name });
+      } catch (error) {
+        toast.error(`Failed to upload ${file.name}`);
+      }
+    }
+    setUploadProgress(0);
+    setUploadedItems(newItems);
+
+    if (newItems.length === 1) {
+      setForm(f => ({ ...f, file_url: newItems[0].file_url, media_type: newItems[0].media_type }));
       toast.success("File uploaded!");
-    } finally {
-      setUploadProgress(0);
+    } else if (newItems.length > 1) {
+      setForm(f => ({ ...f, file_url: "", media_type: newItems[0].media_type }));
+      toast.success(`${newItems.length} files uploaded!`);
     }
   };
 
   const handleSave = async () => {
     setSaving(true);
-    await apiClient.entities.MediaItem.create(form);
+    const itemsToSave = uploadedItems.length > 0 ? uploadedItems : (form.file_url ? [{ file_url: form.file_url, media_type: form.media_type, original_name: "" }] : []);
+    
+    for (const item of itemsToSave) {
+      await apiClient.entities.MediaItem.create({
+        ...form,
+        title: itemsToSave.length > 1 ? `${form.title} - ${item.original_name}` : form.title,
+        file_url: item.file_url,
+        media_type: item.media_type
+      });
+    }
+
     setSaving(false);
     setDialogOpen(false);
     setForm({ title: "", description: "", media_type: "photo", album: "", event_name: "", cover_image_url: "" });
+    setUploadedItems([]);
     toast.success("Media added!");
     queryClient.invalidateQueries({ queryKey: ["admin-media"] });
   };
@@ -128,16 +153,24 @@ export default function AdminMedia({ media }) {
         </div>
       )}
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog open={dialogOpen} onOpenChange={(open) => {
+        setDialogOpen(open);
+        if (!open) {
+          setUploadedItems([]);
+          setForm({ title: "", description: "", media_type: "photo", album: "", event_name: "", cover_image_url: "" });
+        }
+      }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Upload Media</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
-            <div><Label>Title *</Label><Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} /></div>
-            <div><Label>File *</Label><Input type="file" accept="image/*,video/*,.pdf" onChange={handleUpload} /></div>
+            <div><Label>Title *</Label><Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} placeholder={uploadedItems.length > 1 ? "Base title for all files" : "Title"} /></div>
+            <div><Label>File(s) *</Label><Input type="file" multiple accept="image/*,video/*,.pdf,audio/*" onChange={handleUpload} /></div>
             {uploadProgress > 0 && (
               <div className="h-1 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951]" style={{ width: `${uploadProgress}%` }} /></div>
             )}
-            {form.file_url && <p className="text-xs text-green-600">File uploaded ✓</p>}
+            {(form.file_url || uploadedItems.length > 0) && (
+              <p className="text-xs text-green-600">{uploadedItems.length > 1 ? `${uploadedItems.length} files uploaded ✓` : "File uploaded ✓"}</p>
+            )}
             <div><Label>Type</Label>
               <Select value={form.media_type} onValueChange={v => setForm({ ...form, media_type: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -161,7 +194,7 @@ export default function AdminMedia({ media }) {
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
-            <Button onClick={handleSave} disabled={!form.title || !form.file_url || saving} className="bg-[#c8a951] hover:bg-[#b89941] text-[#1a2744]">
+            <Button onClick={handleSave} disabled={!form.title || (uploadedItems.length === 0 && !form.file_url) || saving} className="bg-[#c8a951] hover:bg-[#b89941] text-[#1a2744]">
               {saving ? "Saving..." : "Upload"}
             </Button>
           </DialogFooter>

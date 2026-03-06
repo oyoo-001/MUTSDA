@@ -35,6 +35,9 @@ export default function Layout({ children, currentPageName }) {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [user, setUser] = useState(null);
   const [scrolled, setScrolled] = useState(false);
+  const [unreadChatCount, setUnreadChatCount] = useState(() => {
+    return parseInt(sessionStorage.getItem("unreadChatCount") || "0", 10);
+  });
   const queryClient = useQueryClient();
 
   useEffect(() => {
@@ -55,6 +58,14 @@ export default function Layout({ children, currentPageName }) {
     window.addEventListener("scroll", handleScroll);
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
+
+  // Reset unread count when visiting Chat page
+  useEffect(() => {
+    if (currentPageName === "Chat") {
+      setUnreadChatCount(0);
+      sessionStorage.setItem("unreadChatCount", "0");
+    }
+  }, [currentPageName]);
 
   // Global Real-time Notifications & Data Refresh
   useEffect(() => {
@@ -86,8 +97,22 @@ export default function Layout({ children, currentPageName }) {
     socket.on('announcements_updated', () => handleUpdate('New Announcement', 'Check out the latest announcements!', [['announcements'], ['home-announcements'], ['admin-announcements']]));
     socket.on('media_updated', () => handleUpdate('Gallery Updated', 'New photos or videos added!', [['media'], ['admin-media']]));
 
+    // Chat Notifications
+    if (user) {
+      socket.emit('join', 'general');
+      socket.on('newMessage', (msg) => {
+        if (currentPageName !== "Chat" && msg.sender_email !== user.email) {
+          setUnreadChatCount(prev => {
+            const next = prev + 1;
+            sessionStorage.setItem("unreadChatCount", String(next));
+            return next;
+          });
+        }
+      });
+    }
+
     return () => socket.disconnect();
-  }, [queryClient]);
+  }, [queryClient, user, currentPageName]);
 
   const isAdmin = user?.role === "admin";
   const isAdminPage = currentPageName === "AdminDashboard";
@@ -149,13 +174,18 @@ export default function Layout({ children, currentPageName }) {
                 <Link
                   key={item.page}
                   to={createPageUrl(item.page)}
-                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors ${
+                  className={`px-3 py-2 text-sm font-medium rounded-lg transition-colors flex items-center ${
                     currentPageName === item.page
                       ? "text-[#c8a951] bg-[#c8a951]/10"
                       : "text-[#1a2744]/70 hover:text-[#1a2744] hover:bg-gray-100"
                   }`}
                 >
                   {item.name}
+                  {item.name === "Chat" && user && unreadChatCount > 0 && (
+                    <span className="ml-2 bg-red-500 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
                 </Link>
               ))}
             </nav>
@@ -237,6 +267,11 @@ export default function Layout({ children, currentPageName }) {
                 >
                   <item.icon className="w-4 h-4" />
                   {item.name}
+                  {item.name === "Chat" && user && unreadChatCount > 0 && (
+                    <span className="ml-auto bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                      {unreadChatCount > 99 ? '99+' : unreadChatCount}
+                    </span>
+                  )}
                 </Link>
               ))}
             </nav>
