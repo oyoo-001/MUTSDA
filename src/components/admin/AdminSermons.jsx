@@ -181,6 +181,11 @@ export default function AdminSermons({ sermons }) {
               <Label>Video File (or YouTube Link)</Label>
               <Input type="file" accept="video/*" onChange={handleVideoUpload} className="mb-2" />
               <Input value={form.video_link} onChange={e => setForm({ ...form, video_link: e.target.value })} placeholder="Or paste a YouTube/Vimeo link here" />
+              {form.video_link && !form.video_link.includes('youtu') && (
+                <div className="mt-2 rounded-md overflow-hidden bg-black aspect-video">
+                  <video src={form.video_link} controls className="w-full h-full" />
+                </div>
+              )}
               {uploadProgress > 0 && (
                 <div className="mt-2 space-y-1">
                   <div className="h-2 bg-gray-100 rounded-full overflow-hidden"><div className="h-full bg-[#c8a951] transition-all duration-300" style={{ width: `${uploadProgress}%` }} /></div>

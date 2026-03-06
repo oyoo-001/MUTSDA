@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { apiClient } from "@/api/base44Client";
 import { useQuery } from "@tanstack/react-query";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Image as ImageIcon, Film, X, AlertTriangle, Play, ChevronLeft, ChevronRight, Download } from "lucide-react";
+import { Image as ImageIcon, Film, FileText, X, AlertTriangle, Play, ChevronLeft, ChevronRight, Download } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 
@@ -85,6 +85,9 @@ export default function Gallery() {
               <TabsTrigger value="video" className="gap-2">
                 <Film className="w-4 h-4" /> Videos
               </TabsTrigger>
+              <TabsTrigger value="document" className="gap-2">
+                <FileText className="w-4 h-4" /> Docs
+              </TabsTrigger>
             </TabsList>
           </Tabs>
           {albums.length > 0 && (
@@ -131,11 +134,22 @@ export default function Gallery() {
                   className="group cursor-pointer relative"
                 >
                   <div className="aspect-square rounded-xl overflow-hidden relative bg-gray-100 shadow-sm">
-                    <img 
-                      src={item.file_url} 
-                      alt={item.title} 
-                      className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
-                    />
+                    {item.media_type === 'photo' && (
+                      <img 
+                        src={item.file_url} 
+                        alt={item.title} 
+                        className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" 
+                      />
+                    )}
+                    {item.media_type === 'video' && (
+                      <video src={item.file_url} className="w-full h-full object-cover" />
+                    )}
+                    {item.media_type === 'document' && (
+                      <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-slate-50 group-hover:bg-slate-100 transition-colors">
+                        <FileText className="w-16 h-16 text-slate-300 group-hover:text-[#c8a951] transition-colors" />
+                        <p className="mt-2 text-xs text-slate-500 font-medium truncate w-full text-center">{item.title}</p>
+                      </div>
+                    )}
                     
                     {/* Play Icon for Videos */}
                     {item.media_type === "video" && (
@@ -205,6 +219,10 @@ export default function Gallery() {
                     autoPlay 
                     className="w-full h-full"
                   />
+                </div>
+              ) : selected.media_type === "document" ? (
+                <div className="w-full h-[80vh] bg-white rounded-lg overflow-hidden">
+                  <iframe src={selected.file_url} className="w-full h-full" title={selected.title}></iframe>
                 </div>
               ) : (
                 <img 

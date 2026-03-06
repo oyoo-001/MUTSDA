@@ -144,7 +144,7 @@ const Announcement = sequelize.define('Announcement', {
 const MediaItem = sequelize.define('MediaItem', {
   title: DataTypes.STRING,
   description: DataTypes.TEXT,
-  media_type: { type: DataTypes.ENUM('photo', 'video'), defaultValue: 'photo' },
+  media_type: { type: DataTypes.ENUM('photo', 'video', 'document'), defaultValue: 'photo' },
   album: DataTypes.STRING,
   event_name: DataTypes.STRING,
   file_url: { type: DataTypes.STRING, allowNull: false },

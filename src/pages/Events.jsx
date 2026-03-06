@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { io } from "socket.io-client";
@@ -46,6 +46,7 @@ export default function Events() {
   const [user, setUser] = useState(null);
   const [filter, setFilter] = useState("all");
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [viewingDetails, setViewingDetails] = useState(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -147,6 +148,34 @@ export default function Events() {
           </div>
           <div className="p-4 bg-white">
              <h3 className="font-bold text-lg text-[#1a2744]">{selectedVideo?.title}</h3>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Details Modal */}
+      <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
+        <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#1a2744]">{viewingDetails?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="flex flex-col gap-2 text-sm text-gray-500">
+              {viewingDetails?.event_date && !isNaN(new Date(viewingDetails.event_date).getTime()) && (
+                <div className="flex items-center gap-2">
+                  <Clock className="w-4 h-4 text-[#c8a951]" />
+                  {format(new Date(viewingDetails.event_date), "EEEE, MMMM d, yyyy • h:mm a")}
+                </div>
+              )}
+              {viewingDetails?.location && (
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-[#c8a951]" />
+                  {viewingDetails.location}
+                </div>
+              )}
+            </div>
+            {viewingDetails?.description && (
+              <div className="text-sm text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{viewingDetails.description}</div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -271,6 +300,9 @@ export default function Events() {
                             Sign in to RSVP
                           </Button>
                         )}
+                        <Button size="sm" variant="ghost" className="gap-1.5 text-gray-500" onClick={() => setViewingDetails(event)}>
+                          <Info className="w-3.5 h-3.5" /> Info
+                        </Button>
                       </div>
                     </div>
                   </div>

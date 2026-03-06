@@ -7,7 +7,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Added Dialog
-import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X } from "lucide-react";
+import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { io } from "socket.io-client";
 import { toast } from "sonner";
@@ -26,6 +26,7 @@ export default function Sermons() {
   const [search, setSearch] = useState("");
   // State for the playback modal
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [viewingDetails, setViewingDetails] = useState(null);
   const queryClient = useQueryClient();
 
   const { data: sermons, isLoading, isError, refetch } = useQuery({
@@ -99,6 +100,30 @@ export default function Sermons() {
           <div className="p-6 bg-white">
              <h3 className="font-bold text-xl text-[#1a2744]">{selectedVideo?.title}</h3>
              <p className="text-gray-500">{selectedVideo?.speaker}</p>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Details Modal */}
+      <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
+        <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
+          <DialogHeader>
+            <DialogTitle className="text-xl font-bold text-[#1a2744]">{viewingDetails?.title}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
+            <div className="flex flex-col gap-1 text-sm text-gray-500">
+              <span className="font-semibold text-[#1a2744]">{viewingDetails?.speaker}</span>
+              <span>{viewingDetails?.sermon_date && format(new Date(viewingDetails.sermon_date), "MMMM d, yyyy")}</span>
+            </div>
+            {viewingDetails?.bible_references && (
+              <div className="bg-[#faf8f2] p-3 rounded-lg border border-[#c8a951]/20">
+                <h4 className="text-xs font-bold text-[#c8a951] uppercase tracking-wider mb-1">Scripture</h4>
+                <p className="text-sm text-[#1a2744] font-medium">{viewingDetails.bible_references}</p>
+              </div>
+            )}
+            {viewingDetails?.description && (
+              <div className="text-sm text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{viewingDetails.description}</div>
+            )}
           </div>
         </DialogContent>
       </Dialog>
@@ -217,6 +242,9 @@ export default function Sermons() {
                                 <a href={sermon.audio_url} target="_blank" rel="noreferrer"><Headphones className="w-3.5 h-3.5" /> Audio</a>
                               </Button>
                             )}
+                            <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs text-gray-500 ml-auto" onClick={() => setViewingDetails(sermon)}>
+                              <Info className="w-3.5 h-3.5" /> Info
+                            </Button>
                           </div>
                         </div>
                       </div>
