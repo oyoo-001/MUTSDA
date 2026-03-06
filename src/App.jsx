@@ -20,8 +20,8 @@ const LayoutWrapper = ({ children, currentPageName }) => Layout ?
 
 const SplashScreen = () => (
   <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-[#1a2744] text-white">
-    <div className="w-24 h-24 mb-6 rounded-full bg-[#c8a951]/20 flex items-center justify-center animate-pulse">
-      <Church className="w-12 h-12 text-[#c8a951]" />
+    <div className="w-24 h-24  rounded-full bg-[#ffff] flex items-center justify-center animate-pulse">
+      <img src="https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png" alt="Church Icon" className="w-24 h-24" />
     </div>
     <h1 className="text-3xl font-bold font-serif tracking-wider mb-2">MUTSDA</h1>
     <p className="text-[#c8a951] text-xs uppercase tracking-widest mb-12">Seventh-Day Adventist Church</p>

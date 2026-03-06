@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiClient } from "@/api/base44Client";
+import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
+import { io } from "socket.io-client";
 
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
@@ -57,6 +58,18 @@ export default function Events() {
     };
     loadUser();
   }, []);
+
+  useEffect(() => {
+    const socket = io(SOCKET_URL, { transports: ['websocket'] });
+    socket.on('events_updated', () => {
+        toast.info('The events list has been updated.');
+        queryClient.invalidateQueries({ queryKey: ['events'] });
+    });
+
+    return () => {
+      socket.disconnect();
+    };
+  }, [queryClient]);
 
   // 1. Defensively fetch events
   const { data: eventsData, isLoading, isError, refetch } = useQuery({

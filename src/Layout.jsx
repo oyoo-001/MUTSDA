@@ -218,7 +218,7 @@ export default function Layout({ children, currentPageName }) {
             <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
               <div>
                 <div className="flex items-center gap-3 mb-4">
-                  <div className="w-10 h-10 rounded-full bg-[#c8a951]/20 flex items-center justify-center">
+                  <div className="w-10 h-10 rounded-full bg-[#ffff] flex items-center justify-center">
                     <img
                       src="https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png"
                       alt="Seventh Day Adventist Logo"

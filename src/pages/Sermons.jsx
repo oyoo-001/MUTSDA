@@ -1,6 +1,6 @@
-import React, { useState, useMemo } from "react";
-import { apiClient } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import React, { useState, useMemo, useEffect } from "react";
+import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -9,6 +9,8 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Added Dialog
 import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { io } from "socket.io-client";
+import { toast } from "sonner";
 
 const categoryLabels = {
   sabbath: "Sabbath",
@@ -24,6 +26,7 @@ export default function Sermons() {
   const [search, setSearch] = useState("");
   // State for the playback modal
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const queryClient = useQueryClient();
 
   const { data: sermons, isLoading, isError, refetch } = useQuery({
     queryKey: ["sermons"],
@@ -33,6 +36,17 @@ export default function Sermons() {
     },
     initialData: [],
   });
+
+  useEffect(() => {
+    const socket = io(SOCKET_URL, { transports: ['websocket'] });
+    socket.on('sermons_updated', () => {
+        toast.info('Sermons have been updated.');
+        queryClient.invalidateQueries({ queryKey: ['sermons'] });
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [queryClient]);
 
   const filtered = useMemo(() => {
     const dataArray = Array.isArray(sermons) ? sermons : [];

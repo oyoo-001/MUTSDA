@@ -11,8 +11,6 @@ import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
-const socket = io(SOCKET_URL);
-
 const MessageMedia = ({ message }) => {
   if (!message.media_url) return null;
 

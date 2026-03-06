@@ -232,8 +232,8 @@ export default function AuthPage() {
       <div className="w-full max-w-md">
         <div className="text-center mb-8">
           <Link to="/" className="inline-flex items-center gap-3 group">
-            <div className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center group-hover:scale-105 transition-transform">
-              <Church className="w-6 h-6 text-[#c8a951]" />
+            <div className="w-12 h-12 rounded-full bg-[#ffff] flex items-center justify-center group-hover:scale-105 transition-transform">
+             <img src="https://res.cloudinary.com/dxzmo0roe/image/upload/v1772699359/seventh-day-adventist-church-seeklogo_abaiug.png" alt="Church Icon" className="w-12 h-12" />
             </div>
             <div className="text-left">
               <h1 className="text-lg font-bold text-[#1a2744] leading-tight">MUTSDA</h1>
