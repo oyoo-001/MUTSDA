@@ -1053,6 +1053,7 @@ const supportQueue = []; // Array of { id, name, email, socketId }
 let activeSupportSession = null; // { adminSocketId, userSocketId, room, user }
 const onlineUsers = new Map(); // Map<socket.id, userObject>
 let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "#c8a951" }; // Store the active news ticker message and color
+let currentTextOverlayState = { text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" }; // Store text overlay state
 const activeStreams = new Set();
 const broadcasters = {}; // streamId -> socketId
 
@@ -1074,11 +1075,18 @@ io.on('connection', (socket) => {
 
   // --- NEWS TICKER ---
   socket.emit('ticker_update', currentTickerState); // Send current ticker to new connection
+  socket.emit('text_overlay_update', currentTextOverlayState); // Send current text overlay to new connection
 
   socket.on('admin_update_ticker', (newState) => {
     currentTickerState = { ...currentTickerState, ...newState };
     io.emit('ticker_update', currentTickerState); // Broadcast to all
     console.log(`Ticker updated:`, currentTickerState);
+  });
+
+  socket.on('admin_update_text_overlay', (newState) => {
+    currentTextOverlayState = { ...currentTextOverlayState, ...newState };
+    io.emit('text_overlay_update', currentTextOverlayState); // Broadcast to all
+    console.log(`Text overlay updated:`, newState);
   });
 
   // --- LIVE STREAMING SIGNALING ---

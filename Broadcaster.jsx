@@ -1,9 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
-import Viewer from './Viewer';
+import Viewer from './src/components/Viewer';
 import NewsTicker from './src/components/NewsTicker';
+import TextOverlay from './src/components/TextOverlay';
+import { toast } from "sonner";
+
+const PRESET_VERSES = [
+  { label: "Select a preset...", text: "" },
+  { label: "John 3:16", text: "For God so loved the world that he gave his one and only Son, that whoever believes in him shall not perish but have eternal life." },
+  { label: "Psalm 23:1", text: "The Lord is my shepherd, I lack nothing." },
+  { label: "Philippians 4:13", text: "I can do all this through him who gives me strength." },
+  { label: "Jeremiah 29:11", text: "\"For I know the plans I have for you,\" declares the Lord, \"plans to prosper you and not to harm you, plans to give you hope and a future.\"" },
+  { label: "Romans 8:28", text: "And we know that in all things God works for the good of those who love him, who have been called according to his purpose." },
+  { label: "Welcome", text: "Welcome to our Live Service! We are glad you are here." },
+  { label: "Starting Soon", text: "The service will begin shortly. Please stay tuned." },
+  { label: "Benediction", text: "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you." }
+];
 
 const Broadcaster = ({ streamId = 'default' }) => {
   const [cameras, setCameras] = useState([]);
@@ -18,6 +32,8 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
   const [zoomSettings, setZoomSettings] = useState(null);
+  const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
+  const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
   
   const videoRef = useRef(null);
   const socketRef = useRef(null);
@@ -72,6 +88,17 @@ const Broadcaster = ({ streamId = 'default' }) => {
       } else if (!isStreaming) {
         setRemoteStreamActive(false);
       }
+    });
+
+    // Sync initial text overlay state
+    statusSocket.on('text_overlay_update', (state) => {
+      // Only update if we are not the ones actively editing (simple check)
+      // For a single admin broadcaster, this ensures we start with server state
+      setTextOverlay(prev => ({ ...prev, ...state }));
+      setDraftOverlay(prev => {
+        if (!prev.text && !prev.isVisible) return { ...prev, ...state };
+        return prev;
+      });
     });
 
     return () => statusSocket.disconnect();
@@ -399,6 +426,23 @@ const Broadcaster = ({ streamId = 'default' }) => {
     }
   };
 
+  const updateDraftOverlay = (updates) => {
+    setDraftOverlay(prev => ({ ...prev, ...updates }));
+  };
+
+  const handleGoLive = () => {
+    setTextOverlay(draftOverlay);
+    const socket = socketRef.current || io(SOCKET_URL);
+    socket.emit('admin_update_text_overlay', draftOverlay);
+    if (!socketRef.current) socket.disconnect();
+    toast.success("Text overlay updated live!");
+  };
+
+  const handleSyncFromLive = () => {
+    setDraftOverlay(textOverlay);
+    toast.info("Draft synced from live settings");
+  };
+
   if (remoteStreamActive) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
@@ -477,6 +521,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
           
           <div className="absolute bottom-0 left-0 right-0 z-10">
             <NewsTicker />
+            <TextOverlay />
           </div>
 
           {!isCameraActive && (
@@ -538,6 +583,83 @@ const Broadcaster = ({ streamId = 'default' }) => {
             </div>
           )}
         </div>
+
+        {/* Text Overlay Controls */}
+        {isCameraActive && (
+          <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-bold text-[#1a2744] flex items-center gap-2">
+                <Type className="w-4 h-4" /> Text Overlay (Draft)
+              </h3>
+              <button onClick={handleSyncFromLive} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+                <RefreshCw className="w-3 h-3" /> Sync from Live
+              </button>
+            </div>
+            <div className="space-y-3">
+              <select 
+                className="w-full p-2 rounded-lg border border-slate-200 text-sm bg-white focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
+                onChange={(e) => {
+                  const val = e.target.value;
+                  if (val) updateDraftOverlay({ text: val });
+                }}
+              >
+                {PRESET_VERSES.map((p, i) => (
+                  <option key={i} value={p.text}>{p.label}</option>
+                ))}
+              </select>
+              <textarea
+                value={draftOverlay.text}
+                onChange={(e) => updateDraftOverlay({ text: e.target.value })}
+                placeholder="Enter Bible verse or song lyrics here..."
+                className="w-full p-3 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent min-h-[80px]"
+              />
+              <div className="flex flex-wrap items-center gap-4">
+                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
+                  <span className="text-xs text-slate-500 font-medium">Size: {draftOverlay.fontSize}px</span>
+                  <input 
+                    type="range" 
+                    min="16" 
+                    max="72" 
+                    value={draftOverlay.fontSize} 
+                    onChange={(e) => updateDraftOverlay({ fontSize: parseInt(e.target.value) })}
+                    className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => updateDraftOverlay({ isFullScreen: !draftOverlay.isFullScreen })}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors ${draftOverlay.isFullScreen ? 'bg-[#1a2744] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {draftOverlay.isFullScreen ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />} Full Screen
+                  </button>
+                  <button
+                    onClick={() => updateDraftOverlay({ isVisible: !draftOverlay.isVisible })}
+                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors ${draftOverlay.isVisible ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                  >
+                    {draftOverlay.isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} {draftOverlay.isVisible ? 'Showing' : 'Hidden'}
+                  </button>
+                </div>
+              </div>
+              {draftOverlay.isFullScreen && (
+                <div>
+                  <input 
+                    type="text" 
+                    value={draftOverlay.backgroundImage || ""} 
+                    onChange={(e) => updateDraftOverlay({ backgroundImage: e.target.value })}
+                    placeholder="Background Image URL (Full Screen Only)"
+                    className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
+                  />
+                </div>
+              )}
+              <button 
+                onClick={handleGoLive}
+                className="w-full mt-2 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+              >
+                <Send className="w-4 h-4" /> Go Live
+              </button>
+            </div>
+          </div>
+        )}
 
         {/* Main Action Button */}
         {!isCameraActive ? (

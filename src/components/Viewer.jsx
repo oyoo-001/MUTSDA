@@ -1,8 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
 import io from 'socket.io-client';
-import { SOCKET_URL } from './src/api/base44Client';
+import { SOCKET_URL } from '../api/base44Client';
 import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2, PictureInPicture2 } from 'lucide-react';
-import NewsTicker from './src/components/NewsTicker';
+import NewsTicker from './NewsTicker';
+import TextOverlay from './TextOverlay';
 
 const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = "Stream Offline" }) => {
   const videoRef = useRef(null);
@@ -152,6 +153,7 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
       {/* News Ticker Overlay - High Z-Index to ensure visibility */}
       <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-auto">
         <NewsTicker />
+        <TextOverlay />
       </div>
 
       {/* Overlay Controls */}

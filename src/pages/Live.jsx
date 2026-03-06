@@ -2,7 +2,7 @@ import React, { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
 import { io } from "socket.io-client";
 import { SOCKET_URL } from "@/api/base44Client";
-import Viewer from "../../Viewer";
+import Viewer from "../components/Viewer";
 import { Radio, ArrowLeft } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
