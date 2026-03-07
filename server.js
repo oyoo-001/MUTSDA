@@ -1056,6 +1056,7 @@ let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "
 let currentTextOverlayState = { text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" }; // Store text overlay state
 const activeStreams = new Set();
 const broadcasters = {}; // streamId -> socketId
+const streamViewers = new Map(); // streamId -> Map<socketId, lastHeartbeatTimestamp>
 
 const io = new Server(server, {
   cors: corsOptions,
@@ -1063,6 +1064,25 @@ const io = new Server(server, {
 
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
+
+  // Watchdog: Clean up stale viewers periodically
+  if (!io.watchdogInterval) {
+    io.watchdogInterval = setInterval(() => {
+      const now = Date.now();
+      streamViewers.forEach((viewers, streamId) => {
+        let changed = false;
+        viewers.forEach((lastSeen, socketId) => {
+          if (now - lastSeen > 30000) { // Remove if no heartbeat for 30s
+            viewers.delete(socketId);
+            changed = true;
+          }
+        });
+        if (changed) {
+          broadcastViewerCount(streamId);
+        }
+      });
+    }, 10000); // Check every 10s
+  }
 
   socket.on('join', (room) => {
     socket.join(room);
@@ -1108,10 +1128,41 @@ io.on('connection', (socket) => {
     console.log(`Stream started: ${streamId}`);
   });
 
+  const broadcastViewerCount = (streamId) => {
+    const viewers = streamViewers.get(streamId);
+    const count = viewers ? viewers.size : 0;
+    const broadcasterId = broadcasters[streamId];
+    if (broadcasterId) {
+      io.to(broadcasterId).emit('viewer_count', count);
+    }
+    // Also emit to all viewers in the stream room
+    io.to(`stream_viewers_${streamId}`).emit('viewer_count', count);
+  };
+
   socket.on('watcher', (streamId) => {
     const broadcasterId = broadcasters[streamId];
     if (broadcasterId) {
       io.to(broadcasterId).emit('watcher', socket.id);
+    }
+    
+    // Add to viewers tracking
+    if (!streamViewers.has(streamId)) {
+      streamViewers.set(streamId, new Map());
+    }
+    streamViewers.get(streamId).set(socket.id, Date.now());
+    socket.join(`stream_viewers_${streamId}`);
+    broadcastViewerCount(streamId);
+  });
+
+  socket.on('stream_heartbeat', (streamId) => {
+    if (streamViewers.has(streamId)) {
+      const viewers = streamViewers.get(streamId);
+      // Only update if the viewer is already tracked (or re-add them)
+      if (viewers) {
+        viewers.set(socket.id, Date.now());
+        // If they weren't in the room for some reason, join them
+        socket.join(`stream_viewers_${streamId}`);
+      }
     }
   });
 
@@ -1334,7 +1385,17 @@ io.on('connection', (socket) => {
       delete broadcasters[socket.streamId];
       io.emit('live_streams_update', Array.from(activeStreams));
       socket.broadcast.emit('disconnectPeer', socket.id);
+      // Clear viewers for this stream
+      streamViewers.delete(socket.streamId);
     }
+
+    // Viewer cleanup
+    streamViewers.forEach((viewers, streamId) => {
+      if (viewers.has(socket.id)) {
+        viewers.delete(socket.id);
+        broadcastViewerCount(streamId);
+      }
+    });
 
     if (activeSupportSession) {
       const { room, userSocketId, adminSocketId } = activeSupportSession;

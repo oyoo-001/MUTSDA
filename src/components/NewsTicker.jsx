@@ -9,16 +9,11 @@ export default function NewsTicker() {
 
   useEffect(() => {
     const socket = io(SOCKET_URL);
-    
-    socket.on('connect', () => {
-      console.log("NewsTicker connected to socket");
-    });
-
     socket.on('ticker_update', (tickerState) => {
-      if (typeof tickerState === 'object' && tickerState !== null) {
+      if (tickerState && typeof tickerState === 'object') {
         setTicker(tickerState);
         setIsVisible(!!tickerState.message);
-      } else { // Fallback for old string-based message
+      } else {
         setTicker({ message: tickerState, textColor: "#1a2744", backgroundColor: "#c8a951" });
         setIsVisible(!!tickerState);
       }
@@ -32,50 +27,70 @@ export default function NewsTicker() {
     <>
       <style>
         {`
-          @keyframes marquee {
+          @keyframes snakeWalk {
             0% { transform: translateX(0); }
-            100% { transform: translateX(-100%); }
+            100% { transform: translateX(-50%); }
           }
-          .animate-marquee {
-            animation: marquee 25s linear infinite;
+          .ticker-track {
+            display: inline-flex;
+            white-space: nowrap;
+            animation: snakeWalk 95s linear infinite;
+            will-change: transform;
           }
-          /* Pause animation on hover */
-          .animate-marquee:hover {
+          .ticker-container:hover .ticker-track {
             animation-play-state: paused;
           }
         `}
       </style>
+      
       <div 
-        className="relative overflow-hidden h-10 flex items-center border-b border-black/10 shadow-sm z-50"
+        className="ticker-container relative overflow-hidden h-10 flex items-center border-b border-black/10 shadow-sm z-50"
         style={{ backgroundColor: ticker.backgroundColor || '#c8a951' }}
       >
+        {/* Left Badge: Stationary */}
         <div 
-          className="absolute left-0 top-0 bottom-0 z-20 px-4 flex items-center shadow-[4px_0_10px_rgba(0,0,0,0.1)]"
-          style={{ backgroundColor: ticker.backgroundColor || '#f30c0c' }}
+          className="absolute left-0 top-0 bottom-0 z-30 px-4 flex items-center shadow-[4px_0_10px_rgba(0,0,0,0.1)]"
+          style={{ backgroundColor: ticker.backgroundColor || '#c8a951' }}
         >
-          <Megaphone className="w-4 h-4 mr-2 animate-pulse text-[#1a2744]" />
-          <span className="font-bold text-xs uppercase tracking-wider text-white">Live</span>
+          <div className="bg-red-600 flex items-center px-2 py-0.5 rounded text-white mr-2">
+             <Megaphone className="w-3 h-3 mr-1 animate-pulse" />
+             <span className="font-bold text-[10px] uppercase tracking-tighter">Live</span>
+          </div>
         </div>
         
-        <div className="flex items-center w-full overflow-hidden">
-          <div className="whitespace-nowrap animate-marquee pl-[100%] w-full">
-            <span 
-              className="mx-4 text-sm font-medium inline-block px-4"
-              style={{ color: ticker.textColor || '#1a2744' }}
-            >
-              {ticker.message}
-            </span>
+        {/* The "Snake" Track */}
+        <div className="flex items-center w-full overflow-hidden h-full">
+          <div className="ticker-track">
+            {/* Component for the message block */}
+            <TickerMessage ticker={ticker} />
+            {/* Identical copy for seamless looping */}
+            <TickerMessage ticker={ticker} />
           </div>
         </div>
 
+        {/* Close Button: Stationary */}
         <button 
           onClick={() => setIsVisible(false)}
-          className="absolute right-0 top-0 bottom-0 z-20 px-3 flex items-center hover:brightness-90 transition-all shadow-[-4px_0_10px_rgba(0,0,0,0.1)]"
+          className="absolute right-0 top-0 bottom-0 z-30 px-3 flex items-center hover:brightness-90 transition-all shadow-[-4px_0_10px_rgba(0,0,0,0.1)]"
           style={{ backgroundColor: ticker.backgroundColor || '#c8a951' }}
         >
           <X className="w-4 h-4 text-[#1a2744]" />
         </button>
       </div>
     </>
+  );
+}
+
+// Sub-component to keep the message consistent
+function TickerMessage({ ticker }) {
+  return (
+    <span 
+      className="text-sm font-bold uppercase tracking-wide flex items-center"
+      style={{ color: ticker.textColor || '#1a2744' }}
+    >
+      <span className="px-8">{ticker.message}</span>
+      {/* Decorative separator between loops */}
+      <span className="opacity-30">•</span>
+    </span>
   );
 }

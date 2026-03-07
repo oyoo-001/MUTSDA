@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send, X, Zap, ZapOff } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
 import Viewer from './src/components/Viewer';
 import NewsTicker from './src/components/NewsTicker';
@@ -34,8 +34,12 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [zoomSettings, setZoomSettings] = useState(null);
   const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
   const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
+  const [hasTorch, setHasTorch] = useState(false);
+  const [isTorchOn, setIsTorchOn] = useState(false);
+  const [isFullscreen, setIsFullscreen] = useState(false);
   
   const videoRef = useRef(null);
+  const containerRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnections = useRef({});
   const streamRef = useRef(null);
@@ -104,6 +108,36 @@ const Broadcaster = ({ streamId = 'default' }) => {
     return () => statusSocket.disconnect();
   }, [streamId, isStreaming]);
 
+  useEffect(() => {
+    const handleFullscreenChange = () => {
+      setIsFullscreen(!!document.fullscreenElement);
+    };
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+  }, []);
+
+  const toggleFullscreen = () => {
+    if (!containerRef.current) return;
+    if (!document.fullscreenElement) {
+      containerRef.current.requestFullscreen().catch(err => {
+        console.error(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      });
+    } else {
+      document.exitFullscreen();
+    }
+  };
+
+  const checkTorchCapability = (stream) => {
+    const track = stream.getVideoTracks()[0];
+    if (!track) return;
+    
+    const capabilities = track.getCapabilities ? track.getCapabilities() : {};
+    // Check if torch is supported
+    if (capabilities.torch) {
+      setHasTorch(true);
+    }
+  };
+
   const updateZoomCapabilities = (stream) => {
     const videoTrack = stream.getVideoTracks()[0];
     if (!videoTrack) return;
@@ -136,6 +170,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         videoRef.current.srcObject = stream;
       }
       updateZoomCapabilities(stream);
+      checkTorchCapability(stream);
       setIsCameraActive(true);
       setAudioEnabled(true);
       setVideoEnabled(true);
@@ -296,6 +331,23 @@ const Broadcaster = ({ streamId = 'default' }) => {
     }
   };
 
+  const toggleTorch = async () => {
+    if (streamRef.current) {
+      const track = streamRef.current.getVideoTracks()[0];
+      if (track && hasTorch) {
+        try {
+          await track.applyConstraints({
+            advanced: [{ torch: !isTorchOn }]
+          });
+          setIsTorchOn(!isTorchOn);
+        } catch (err) {
+          console.error("Torch toggle failed", err);
+          toast.error("Failed to toggle flashlight");
+        }
+      }
+    }
+  };
+
   const toggleScreenShare = async () => {
     if (isScreenSharing) {
       await stopScreenShare();
@@ -375,38 +427,42 @@ const Broadcaster = ({ streamId = 'default' }) => {
     const deviceId = e.target.value;
     setSelectedCamera(deviceId);
 
-    if (isCameraActive) {
+    if (isCameraActive && streamRef.current) {
       try {
+        // Stop the old track first to release hardware resources (crucial for mobile)
+        const oldVideoTrack = streamRef.current.getVideoTracks()[0];
+        if (oldVideoTrack) {
+          oldVideoTrack.stop();
+          streamRef.current.removeTrack(oldVideoTrack);
+        }
+
         const newStream = await navigator.mediaDevices.getUserMedia({
           audio: false,
           video: { deviceId: { exact: deviceId } }
         });
         const newVideoTrack = newStream.getVideoTracks()[0];
 
-        if (streamRef.current) {
-          const oldVideoTrack = streamRef.current.getVideoTracks()[0];
-          if (oldVideoTrack) {
-            oldVideoTrack.stop();
-            streamRef.current.removeTrack(oldVideoTrack);
-          }
-          streamRef.current.addTrack(newVideoTrack);
-          
-          if (videoRef.current) {
-             videoRef.current.srcObject = streamRef.current;
-          }
-          updateZoomCapabilities(newStream);
-
-          Object.values(peerConnections.current).forEach(pc => {
-            const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
-            if (sender) {
-              sender.replaceTrack(newVideoTrack);
-            }
-          });
+        streamRef.current.addTrack(newVideoTrack);
+        
+        if (videoRef.current) {
+            videoRef.current.srcObject = streamRef.current;
         }
+        updateZoomCapabilities(newStream);
+        setHasTorch(false); // Reset and check again
+        checkTorchCapability(newStream);
+
+        Object.values(peerConnections.current).forEach(pc => {
+          const sender = pc.getSenders().find(s => s.track && s.track.kind === 'video');
+          if (sender) {
+            sender.replaceTrack(newVideoTrack);
+          }
+        });
+
         setIsScreenSharing(false);
         setVideoEnabled(true);
       } catch (err) {
         console.error("Failed to switch camera", err);
+        toast.error("Failed to switch camera");
       }
     }
   };
@@ -441,6 +497,17 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const handleSyncFromLive = () => {
     setDraftOverlay(textOverlay);
     toast.info("Draft synced from live settings");
+  };
+
+  const handleClearOverlay = () => {
+    const clearedState = { ...draftOverlay, text: "", isVisible: false };
+    setDraftOverlay(clearedState);
+    setTextOverlay(clearedState);
+    
+    const socket = socketRef.current || io(SOCKET_URL);
+    socket.emit('admin_update_text_overlay', clearedState);
+    if (!socketRef.current) socket.disconnect();
+    toast.success("Overlay cleared!");
   };
 
   if (remoteStreamActive) {
@@ -510,7 +577,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         </div>
 
         {/* Video Preview */}
-        <div className="relative bg-black rounded-xl overflow-hidden aspect-video shadow-inner mb-6 group">
+        <div ref={containerRef} className="relative bg-black rounded-xl overflow-hidden aspect-video shadow-inner mb-6 group">
           <video 
             ref={videoRef} 
             autoPlay 
@@ -533,23 +600,6 @@ const Broadcaster = ({ streamId = 'default' }) => {
             </div>
           )}
 
-          {/* Zoom Control */}
-          {isCameraActive && zoomSettings && (
-            <div className="absolute bottom-20 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm px-4 py-2 rounded-full border border-white/10 z-20">
-              <ZoomIn className="w-4 h-4 text-white" />
-              <input 
-                type="range" 
-                min={zoomSettings.min} 
-                max={zoomSettings.max} 
-                step={zoomSettings.step} 
-                value={zoomSettings.value} 
-                onChange={handleZoom}
-                className="w-32 h-1 bg-white/30 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
-              />
-              <span className="text-xs text-white font-mono w-8 text-right">{zoomSettings.value.toFixed(1)}x</span>
-            </div>
-          )}
-
           {/* Controls Overlay */}
           {isCameraActive && (
             <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full border border-white/10 z-20">
@@ -560,6 +610,15 @@ const Broadcaster = ({ streamId = 'default' }) => {
               >
                 {isRecording ? <Square className="w-5 h-5 fill-current" /> : <Disc className="w-5 h-5" />}
               </button>
+              {hasTorch && (
+                <button 
+                  onClick={toggleTorch}
+                  className={`p-3 rounded-full transition-all ${isTorchOn ? 'bg-yellow-500 text-white' : 'bg-white/20 hover:bg-white/30 text-white'}`}
+                  title="Toggle Flashlight"
+                >
+                  {isTorchOn ? <ZapOff className="w-5 h-5" /> : <Zap className="w-5 h-5" />}
+                </button>
+              )}
               <div className="w-px h-6 bg-white/20 mx-1"></div>
               <button 
                 onClick={toggleScreenShare}
@@ -580,9 +639,37 @@ const Broadcaster = ({ streamId = 'default' }) => {
               >
                 {audioEnabled ? <Mic className="w-5 h-5" /> : <MicOff className="w-5 h-5" />}
               </button>
+              <div className="w-px h-6 bg-white/20 mx-1"></div>
+              <button 
+                onClick={toggleFullscreen}
+                className="p-3 rounded-full transition-all bg-white/20 hover:bg-white/30 text-white"
+                title={isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+              >
+                {isFullscreen ? <Minimize className="w-5 h-5" /> : <Maximize className="w-5 h-5" />}
+              </button>
             </div>
           )}
         </div>
+
+        {/* Zoom Control (Moved Outside) */}
+        {isCameraActive && zoomSettings && (
+          <div className="mb-6 flex items-center justify-center gap-4 bg-slate-50 p-4 rounded-xl border border-slate-200 shadow-sm">
+            <div className="flex items-center gap-2 text-slate-700 font-medium">
+              <ZoomIn className="w-5 h-5 text-[#c8a951]" />
+              <span>Camera Zoom</span>
+            </div>
+            <input 
+              type="range" 
+              min={zoomSettings.min} 
+              max={zoomSettings.max} 
+              step={zoomSettings.step} 
+              value={zoomSettings.value} 
+              onChange={handleZoom}
+              className="w-full max-w-xs h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
+            />
+            <span className="text-sm font-mono text-slate-600 bg-white px-2 py-1 rounded border border-slate-200 min-w-[3rem] text-center">{zoomSettings.value.toFixed(1)}x</span>
+          </div>
+        )}
 
         {/* Text Overlay Controls */}
         {isCameraActive && (
@@ -651,12 +738,20 @@ const Broadcaster = ({ streamId = 'default' }) => {
                   />
                 </div>
               )}
-              <button 
-                onClick={handleGoLive}
-                className="w-full mt-2 bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
-              >
-                <Send className="w-4 h-4" /> Go Live
-              </button>
+              <div className="flex gap-2 mt-2">
+                <button 
+                  onClick={handleClearOverlay}
+                  className="flex-1 bg-red-100 text-red-700 font-bold py-2 px-4 rounded-lg hover:bg-red-200 transition-all flex items-center justify-center gap-2"
+                >
+                  <X className="w-4 h-4" /> Clear
+                </button>
+                <button 
+                  onClick={handleGoLive}
+                  className="flex-[2] bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
+                >
+                  <Send className="w-4 h-4" /> Go Live
+                </button>
+              </div>
             </div>
           </div>
         )}

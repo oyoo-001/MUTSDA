@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import AdminSupportModal from "@/components/admin/AdminSupportModal";
-import NewsTicker from "@/components/NewsTicker";
+
 
 const publicNav = [
   { name: "Home", page: "Home", icon: Home },
@@ -141,17 +141,8 @@ export default function Layout({ children, currentPageName }) {
 
   return (
     <div className="min-h-screen flex flex-col bg-[#faf8f2]">
-      {/* Top bar */}
-      <div className="bg-[#1a2744] text-white/80 text-xs py-1.5 px-4 hidden md:block">
-        <div className="max-w-7xl mx-auto flex justify-between items-center">
-          <span>Sabbath School: 9:30 AM | Divine Service: 11:00 AM</span>
-          <span>📞 +254 7420 41208| ✉ info@sdachurch.org</span>
-          <span>Welcome to  MUTSDA Church</span>
-        </div>
-      </div>
-
-      {/* Live News Ticker */}
-      <NewsTicker />
+      
+     
 
       {/* Main nav */}
       <header className={`sticky top-0 z-50 transition-all duration-300 ${

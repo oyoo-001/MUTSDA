@@ -78,7 +78,15 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
 
     socketRef.current.emit('watcher', streamId);
 
+    // Heartbeat watchdog: Tell server we are still watching every 15 seconds
+    const heartbeatInterval = setInterval(() => {
+      if (socketRef.current && socketRef.current.connected) {
+        socketRef.current.emit('stream_heartbeat', streamId);
+      }
+    }, 15000);
+
     return () => {
+      clearInterval(heartbeatInterval);
       if (socketRef.current) socketRef.current.disconnect();
       if (peerConnectionRef.current) peerConnectionRef.current.close();
     };
