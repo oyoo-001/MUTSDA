@@ -25,37 +25,57 @@ const BIBLE_BOOKS = [
   "Matthew", "Mark", "Luke", "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
+// Global state to persist stream across navigation/unmounts
+const globalBroadcastState = {
+  stream: null,
+  socket: null,
+  peerConnections: {},
+  mediaRecorder: null,
+  recordedChunks: [],
+  isStreaming: false,
+  isCameraActive: false,
+  selectedCamera: '',
+  audioEnabled: true,
+  videoEnabled: true,
+  hasTorch: false,
+  isTorchOn: false,
+  zoomSettings: null,
+  viewerCount: 0,
+  isScreenSharing: false
+};
+
 const Broadcaster = ({ streamId = 'default' }) => {
   const [cameras, setCameras] = useState([]);
-  const [selectedCamera, setSelectedCamera] = useState('');
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isRecording, setIsRecording] = useState(false);
-  const [isScreenSharing, setIsScreenSharing] = useState(false);
-  const [viewerCount, setViewerCount] = useState(0);
+  const [selectedCamera, setSelectedCamera] = useState(globalBroadcastState.selectedCamera || '');
+  const [isStreaming, setIsStreaming] = useState(globalBroadcastState.isStreaming);
+  const [isRecording, setIsRecording] = useState(!!(globalBroadcastState.mediaRecorder && globalBroadcastState.mediaRecorder.state === 'recording'));
+  const [isScreenSharing, setIsScreenSharing] = useState(globalBroadcastState.isScreenSharing);
+  const [viewerCount, setViewerCount] = useState(globalBroadcastState.viewerCount);
   const [permissionError, setPermissionError] = useState(null);
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [audioEnabled, setAudioEnabled] = useState(true);
-  const [videoEnabled, setVideoEnabled] = useState(true);
+  const [isCameraActive, setIsCameraActive] = useState(globalBroadcastState.isCameraActive);
+  const [audioEnabled, setAudioEnabled] = useState(globalBroadcastState.audioEnabled);
+  const [videoEnabled, setVideoEnabled] = useState(globalBroadcastState.videoEnabled);
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
-  const [zoomSettings, setZoomSettings] = useState(null);
+  const [zoomSettings, setZoomSettings] = useState(globalBroadcastState.zoomSettings);
   const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744", backgroundOpacity: 0.8 });
   const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744", backgroundOpacity: 0.8 });
-  const [hasTorch, setHasTorch] = useState(false);
-  const [isTorchOn, setIsTorchOn] = useState(false);
+  const [hasTorch, setHasTorch] = useState(globalBroadcastState.hasTorch);
+  const [isTorchOn, setIsTorchOn] = useState(globalBroadcastState.isTorchOn);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [verseQuery, setVerseQuery] = useState("");
   const [isFetchingVerse, setIsFetchingVerse] = useState(false);
   const [verseTranslation, setVerseTranslation] = useState("kjv");
   const [suggestions, setSuggestions] = useState([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [showStopConfirmation, setShowStopConfirmation] = useState(false);
   
   const videoRef = useRef(null);
   const containerRef = useRef(null);
-  const socketRef = useRef(null);
-  const peerConnections = useRef({});
-  const streamRef = useRef(null);
-  const mediaRecorderRef = useRef(null);
-  const recordedChunksRef = useRef([]);
+  const socketRef = useRef(globalBroadcastState.socket);
+  const peerConnections = useRef(globalBroadcastState.peerConnections);
+  const streamRef = useRef(globalBroadcastState.stream);
+  const mediaRecorderRef = useRef(globalBroadcastState.mediaRecorder);
+  const recordedChunksRef = useRef(globalBroadcastState.recordedChunks);
   const adminSocketRef = useRef(null);
   const verseInputRef = useRef(null);
 
@@ -83,10 +103,71 @@ const Broadcaster = ({ streamId = 'default' }) => {
     // Listen for external camera connections/disconnections
     navigator.mediaDevices.addEventListener('devicechange', getCameras);
 
+    // Restore stream to video element if it exists globally
+    if (globalBroadcastState.stream && videoRef.current) {
+      videoRef.current.srcObject = globalBroadcastState.stream;
+    }
+
+    // Re-attach socket listeners if socket exists (to ensure they point to current state setters)
+    if (globalBroadcastState.socket) {
+      const socket = globalBroadcastState.socket;
+      socket.removeAllListeners('viewer_count');
+      socket.removeAllListeners('watcher');
+      socket.removeAllListeners('answer');
+      socket.removeAllListeners('candidate');
+      socket.removeAllListeners('disconnectPeer');
+
+      socket.on('viewer_count', (count) => {
+        setViewerCount(count);
+        globalBroadcastState.viewerCount = count;
+      });
+
+      socket.on('watcher', (id) => {
+        const peerConnection = new RTCPeerConnection({
+          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+        });
+
+        peerConnections.current[id] = peerConnection;
+
+        streamRef.current.getTracks().forEach(track => peerConnection.addTrack(track, streamRef.current));
+
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            socket.emit('candidate', id, event.candidate);
+          }
+        };
+
+        peerConnection.createOffer()
+          .then(sdp => peerConnection.setLocalDescription(sdp))
+          .then(() => {
+            socket.emit('offer', id, peerConnection.localDescription);
+          });
+      });
+
+      socket.on('answer', (id, description) => {
+        if (peerConnections.current[id]) {
+          peerConnections.current[id].setRemoteDescription(description);
+        }
+      });
+
+      socket.on('candidate', (id, candidate) => {
+        if (peerConnections.current[id]) {
+          peerConnections.current[id].addIceCandidate(new RTCIceCandidate(candidate));
+        }
+      });
+
+      socket.on('disconnectPeer', (id) => {
+        if (peerConnections.current[id]) {
+          peerConnections.current[id].close();
+          delete peerConnections.current[id];
+        }
+      });
+    }
+
     // Cleanup on unmount
     return () => {
       navigator.mediaDevices.removeEventListener('devicechange', getCameras);
-      stopStream();
+      // Do NOT stop stream here to allow background broadcasting
     };
   }, []);
 
@@ -170,6 +251,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         step: capabilities.zoom.step,
         value: settings.zoom || capabilities.zoom.min
       });
+      globalBroadcastState.zoomSettings = zoomSettings;
     } else {
       setZoomSettings(null);
     }
@@ -192,6 +274,12 @@ const Broadcaster = ({ streamId = 'default' }) => {
       setIsCameraActive(true);
       setAudioEnabled(true);
       setVideoEnabled(true);
+
+      // Update global state
+      globalBroadcastState.stream = stream;
+      globalBroadcastState.isCameraActive = true;
+      globalBroadcastState.audioEnabled = true;
+      globalBroadcastState.videoEnabled = true;
       
       // Refresh devices to get labels now that permissions are granted
       getCameras();
@@ -216,6 +304,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
       socketRef.current.on('viewer_count', (count) => {
         setViewerCount(count);
+        globalBroadcastState.viewerCount = count;
       });
 
       socketRef.current.on('watcher', (id) => {
@@ -260,6 +349,9 @@ const Broadcaster = ({ streamId = 'default' }) => {
       });
 
       setIsStreaming(true);
+      globalBroadcastState.isStreaming = true;
+      globalBroadcastState.socket = socketRef.current;
+      globalBroadcastState.peerConnections = peerConnections.current;
     } catch (error) {
       console.error("Error starting stream:", error);
     }
@@ -282,6 +374,22 @@ const Broadcaster = ({ streamId = 'default' }) => {
     setViewerCount(0);
     setPermissionError(null);
     if (isRecording) stopRecording();
+
+    // Reset global state
+    globalBroadcastState.stream = null;
+    globalBroadcastState.socket = null;
+    globalBroadcastState.peerConnections = {};
+    globalBroadcastState.isStreaming = false;
+    globalBroadcastState.isCameraActive = false;
+    globalBroadcastState.viewerCount = 0;
+    globalBroadcastState.mediaRecorder = null;
+    globalBroadcastState.recordedChunks = [];
+    globalBroadcastState.isScreenSharing = false;
+    globalBroadcastState.hasTorch = false;
+    globalBroadcastState.isTorchOn = false;
+    globalBroadcastState.zoomSettings = null;
+    globalBroadcastState.audioEnabled = true;
+    globalBroadcastState.videoEnabled = true;
   };
 
   const startRecording = () => {
@@ -316,6 +424,8 @@ const Broadcaster = ({ streamId = 'default' }) => {
       recorder.start();
       setIsRecording(true);
       mediaRecorderRef.current = recorder;
+      globalBroadcastState.mediaRecorder = recorder;
+      globalBroadcastState.recordedChunks = recordedChunksRef.current;
     } catch (err) {
       console.error("Error starting recording:", err);
       alert("Could not start recording. Browser might not support it.");
@@ -326,6 +436,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
       mediaRecorderRef.current.stop();
       setIsRecording(false);
+      globalBroadcastState.mediaRecorder = null;
     }
   };
 
@@ -335,6 +446,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
       if (audioTrack) {
         audioTrack.enabled = !audioTrack.enabled;
         setAudioEnabled(audioTrack.enabled);
+        globalBroadcastState.audioEnabled = audioTrack.enabled;
       }
     }
   };
@@ -345,6 +457,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
       if (videoTrack) {
         videoTrack.enabled = !videoTrack.enabled;
         setVideoEnabled(videoTrack.enabled);
+        globalBroadcastState.videoEnabled = videoTrack.enabled;
       }
     }
   };
@@ -358,6 +471,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
             advanced: [{ torch: !isTorchOn }]
           });
           setIsTorchOn(!isTorchOn);
+          globalBroadcastState.isTorchOn = !isTorchOn;
         } catch (err) {
           console.error("Torch toggle failed", err);
           toast.error("Failed to toggle flashlight");
@@ -403,6 +517,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         });
       }
       setIsScreenSharing(true);
+      globalBroadcastState.isScreenSharing = true;
     } catch (error) {
       console.error("Error starting screen share:", error);
     }
@@ -436,6 +551,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         });
       }
       setIsScreenSharing(false);
+      globalBroadcastState.isScreenSharing = false;
     } catch (error) {
       console.error("Error stopping screen share:", error);
     }
@@ -444,6 +560,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const handleCameraChange = async (e) => {
     const deviceId = e.target.value;
     setSelectedCamera(deviceId);
+    globalBroadcastState.selectedCamera = deviceId;
 
     if (isCameraActive && streamRef.current) {
       try {
@@ -465,6 +582,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         if (videoRef.current) {
             videoRef.current.srcObject = streamRef.current;
         }
+        globalBroadcastState.stream = streamRef.current;
         updateZoomCapabilities(newStream);
         setHasTorch(false); // Reset and check again
         checkTorchCapability(newStream);
@@ -477,6 +595,9 @@ const Broadcaster = ({ streamId = 'default' }) => {
         });
 
         setIsScreenSharing(false);
+        globalBroadcastState.isScreenSharing = false;
+        setVideoEnabled(true);
+        globalBroadcastState.videoEnabled = true;
         setVideoEnabled(true);
       } catch (err) {
         console.error("Failed to switch camera", err);
@@ -493,6 +614,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
         try {
           await videoTrack.applyConstraints({ advanced: [{ zoom: value }] });
           setZoomSettings(prev => ({ ...prev, value }));
+          globalBroadcastState.zoomSettings = { ...zoomSettings, value };
         } catch (err) {
           console.error("Zoom failed", err);
         }
@@ -777,11 +899,42 @@ const Broadcaster = ({ streamId = 'default' }) => {
           </button>
         ) : (
           <button 
-            onClick={stopStream} 
+            onClick={() => setShowStopConfirmation(true)} 
             className="w-full bg-red-600 text-white font-bold py-3 px-4 rounded-lg hover:bg-red-700 transition-all shadow-lg hover:shadow-xl flex items-center justify-center gap-2"
           >
             <Radio className="w-5 h-5" /> End Broadcast
           </button>
+        )}
+
+        {/* Confirmation Modal */}
+        {showStopConfirmation && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in duration-200">
+              <div className="flex items-center gap-3 text-red-600 mb-4">
+                <div className="p-3 bg-red-100 rounded-full">
+                  <AlertTriangle className="w-6 h-6" />
+                </div>
+                <h3 className="text-lg font-bold text-slate-900">End Live Broadcast?</h3>
+              </div>
+              <p className="text-slate-600 mb-6">
+                Are you sure you want to stop the live stream? This will disconnect all viewers immediately.
+              </p>
+              <div className="flex justify-end gap-3">
+                <button 
+                  onClick={() => setShowStopConfirmation(false)}
+                  className="px-4 py-2 rounded-lg text-slate-700 font-medium hover:bg-slate-100 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button 
+                  onClick={confirmStopStream}
+                  className="px-4 py-2 rounded-lg bg-red-600 text-white font-bold hover:bg-red-700 transition-colors shadow-md"
+                >
+                  Yes, End Broadcast
+                </button>
+              </div>
+            </div>
+          </div>
         )}
           </>
         )}

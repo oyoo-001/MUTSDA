@@ -7,6 +7,7 @@ import TextOverlay from './TextOverlay';
 
 const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = "Stream Offline" }) => {
   const videoRef = useRef(null);
+  const containerRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
@@ -99,16 +100,19 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
       }
   };
 
-  const toggleFullscreen = () => {
+  const toggleFullscreen = async () => {
       if (!document.fullscreenElement) {
           try {
-              videoRef.current.requestFullscreen();
-              setIsFullscreen(true);
-              // Attempt to lock orientation to landscape on mobile
-              if (screen.orientation && screen.orientation.lock) {
-    screen.orientation.lock('landscape')
-      .catch(e => console.log('Orientation lock failed:', e));
-}
+              if (containerRef.current && containerRef.current.requestFullscreen) {
+                  await containerRef.current.requestFullscreen();
+                  setIsFullscreen(true);
+                  // Attempt to lock orientation to landscape on mobile
+                  if (screen.orientation && screen.orientation.lock) {
+                      screen.orientation.lock('landscape').catch(e => console.log('Orientation lock failed:', e));
+                  }
+              } else if (videoRef.current && videoRef.current.webkitEnterFullscreen) {
+                  videoRef.current.webkitEnterFullscreen();
+              }
           } catch (err) {
               console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
           }
@@ -141,7 +145,7 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
   }, []);
 
   return (
-    <div className={`relative group overflow-hidden bg-black rounded-xl shadow-2xl aspect-video ${isFullscreen ? 'w-full h-full' : 'w-full'}`}>
+    <div ref={containerRef} className={`relative group overflow-hidden bg-black rounded-xl shadow-2xl aspect-video ${isFullscreen ? 'w-full h-full' : 'w-full'}`}>
       {status === 'connecting' && (
           <div className="absolute inset-0 flex items-center justify-center z-10 bg-gray-900 text-white">
               <div className="flex flex-col items-center animate-pulse">
