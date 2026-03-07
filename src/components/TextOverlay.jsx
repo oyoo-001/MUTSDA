@@ -3,8 +3,21 @@ import { io } from 'socket.io-client';
 import { SOCKET_URL } from '@/api/base44Client';
 import { motion, AnimatePresence } from "framer-motion";
 
+const hexToRgba = (hex, alpha = 1) => {
+  if (!hex || !/^#([A-Fa-f0-9]{3}){1,2}$/.test(hex)) {
+    if (typeof hex === 'string' && hex.startsWith('rgb')) return hex;
+    return 'transparent';
+  }
+  let c = hex.substring(1).split('');
+  if (c.length === 3) {
+    c = [c[0], c[0], c[1], c[1], c[2], c[2]];
+  }
+  c = '0x' + c.join('');
+  return `rgba(${(c >> 16) & 255},${(c >> 8) & 255},${c & 255},${alpha})`;
+};
+
 export default function TextOverlay() {
-  const [state, setState] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "" });
+  const [state, setState] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "", backgroundOpacity: 1 });
 
   useEffect(() => {
     const socket = io(SOCKET_URL);
@@ -16,14 +29,20 @@ export default function TextOverlay() {
 
   if (!state.isVisible || !state.text) return null;
 
+  const getFontSizeClass = (text) => {
+    const len = text.length;
+    if (len < 50) return "text-4xl md:text-6xl lg:text-7xl";
+    if (len < 100) return "text-3xl md:text-5xl lg:text-6xl";
+    if (len < 200) return "text-2xl md:text-4xl lg:text-5xl";
+    return "text-xl md:text-3xl lg:text-4xl";
+  };
+
+  const finalBackgroundColor = hexToRgba(state.backgroundColor, state.backgroundOpacity ?? 1);
+
   return (
     <div 
-      className={`absolute inset-0 z-40 flex items-center justify-center text-center transition-all duration-500 ${
-        state.isFullScreen 
-          ? 'p-12' 
-          : 'top-auto bottom-12 p-6 backdrop-blur-sm'
-      }`}
-      style={{ backgroundColor: state.backgroundColor || (state.isFullScreen ? '#1a2744' : 'rgba(0, 0, 0, 0.6)') }}
+      className="absolute inset-0 z-40 flex items-center justify-center text-center transition-all duration-500 p-12"
+      style={{ backgroundColor: state.backgroundImage ? 'transparent' : finalBackgroundColor }}
     >
       <AnimatePresence>
         {state.backgroundImage && (
@@ -39,7 +58,7 @@ export default function TextOverlay() {
         )}
       </AnimatePresence>
       {state.backgroundImage && (
-        <div className="absolute inset-0 bg-black/50 z-[-1]" />
+        <div className="absolute inset-0 z-[-1]" style={{ backgroundColor: finalBackgroundColor }} />
       )}
       <AnimatePresence mode="wait">
       <motion.p 
@@ -49,7 +68,7 @@ export default function TextOverlay() {
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.3 }}
         style={{ lineHeight: 1.5, whiteSpace: 'pre-wrap' }} 
-        className="font-serif font-medium text-white drop-shadow-lg max-w-4xl mx-auto text-xl md:text-3xl lg:text-4xl"
+        className={`font-serif font-medium text-white drop-shadow-lg max-w-6xl mx-auto ${getFontSizeClass(state.text)}`}
       >
         {state.text}
       </motion.p>

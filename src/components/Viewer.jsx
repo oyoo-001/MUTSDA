@@ -158,10 +158,10 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
         className="w-full h-full object-cover"
       ></video>
 
+      <TextOverlay />
       {/* News Ticker Overlay - High Z-Index to ensure visibility */}
       <div className="absolute bottom-0 left-0 right-0 z-50 pointer-events-auto">
         <NewsTicker />
-        <TextOverlay />
       </div>
 
       {/* Overlay Controls */}

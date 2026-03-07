@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send, X, Zap, ZapOff, Upload, Palette, Search, Loader2 } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send, X, Zap, ZapOff, Upload, Palette, Search, Loader2, Droplets } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
 import Viewer from './src/components/Viewer';
 import NewsTicker from './src/components/NewsTicker';
@@ -38,8 +38,8 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
   const [zoomSettings, setZoomSettings] = useState(null);
-  const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744" });
-  const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744" });
+  const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744", backgroundOpacity: 0.8 });
+  const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744", backgroundOpacity: 0.8 });
   const [hasTorch, setHasTorch] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
@@ -56,6 +56,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const streamRef = useRef(null);
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
+  const adminSocketRef = useRef(null);
 
   const getCameras = async () => {
     try {
@@ -90,13 +91,15 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
   // Check for existing streams on mount and updates
   useEffect(() => {
-    const statusSocket = io(SOCKET_URL);
-    
-    statusSocket.on('connect', () => {
-      statusSocket.emit('get_live_streams');
+    // This socket is for admin actions like text overlay and status updates
+    const socket = io(SOCKET_URL);
+    adminSocketRef.current = socket;
+
+    socket.on('connect', () => {
+      socket.emit('get_live_streams');
     });
 
-    statusSocket.on('live_streams_update', (streams) => {
+    socket.on('live_streams_update', (streams) => {
       // If streamId is active but WE are not streaming, then someone else is.
       if (streams.includes(streamId) && !isStreaming) {
         setRemoteStreamActive(true);
@@ -106,7 +109,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
     });
 
     // Sync initial text overlay state
-    statusSocket.on('text_overlay_update', (state) => {
+    socket.on('text_overlay_update', (state) => {
       // Only update if we are not the ones actively editing (simple check)
       // For a single admin broadcaster, this ensures we start with server state
       setTextOverlay(prev => ({ ...prev, ...state }));
@@ -116,7 +119,10 @@ const Broadcaster = ({ streamId = 'default' }) => {
       });
     });
 
-    return () => statusSocket.disconnect();
+    return () => {
+      socket.disconnect();
+      adminSocketRef.current = null;
+    };
   }, [streamId, isStreaming]);
 
   useEffect(() => {
@@ -499,10 +505,12 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
   const handleGoLive = () => {
     setTextOverlay(draftOverlay);
-    const socket = socketRef.current || io(SOCKET_URL);
-    socket.emit('admin_update_text_overlay', draftOverlay);
-    if (!socketRef.current) socket.disconnect();
-    toast.success("Text overlay updated live!");
+    if (adminSocketRef.current) {
+      adminSocketRef.current.emit('admin_update_text_overlay', draftOverlay);
+      toast.success("Text overlay updated live!");
+    } else {
+      toast.error("Not connected to server. Cannot update overlay.");
+    }
   };
 
   const handleSyncFromLive = () => {
@@ -515,10 +523,12 @@ const Broadcaster = ({ streamId = 'default' }) => {
     setDraftOverlay(clearedState);
     setTextOverlay(clearedState);
     
-    const socket = socketRef.current || io(SOCKET_URL);
-    socket.emit('admin_update_text_overlay', clearedState);
-    if (!socketRef.current) socket.disconnect();
-    toast.success("Overlay cleared!");
+    if (adminSocketRef.current) {
+      adminSocketRef.current.emit('admin_update_text_overlay', clearedState);
+      toast.success("Overlay cleared!");
+    } else {
+      toast.error("Not connected to server. Cannot clear overlay.");
+    }
   };
 
   const handleBackgroundUpload = async (e) => {
@@ -658,9 +668,9 @@ const Broadcaster = ({ streamId = 'default' }) => {
             className={`w-full h-full object-cover ${!isCameraActive && 'opacity-50'}`}
           ></video>
           
-          <div className="absolute bottom-0 left-0 right-0 z-10">
+          <TextOverlay />
+          <div className="absolute bottom-0 left-0 right-0 z-50">
             <NewsTicker />
-            <TextOverlay />
           </div>
 
           {!isCameraActive && (
@@ -674,7 +684,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
           {/* Controls Overlay */}
           {isCameraActive && (
-            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full border border-white/10 z-20">
+            <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 flex items-center gap-3 bg-black/50 backdrop-blur-sm p-2 rounded-full border border-white/10 z-50">
               <button 
                 onClick={isRecording ? stopRecording : startRecording}
                 className={`p-3 rounded-full transition-all ${isRecording ? 'bg-red-600 text-white animate-pulse' : 'bg-white/20 hover:bg-white/30 text-white'}`}
@@ -858,6 +868,20 @@ const Broadcaster = ({ streamId = 'default' }) => {
                 <Palette className="w-4 h-4 text-slate-500" />
                 <span className="text-xs font-medium text-slate-600">Background Color</span>
                 <input type="color" value={draftOverlay.backgroundColor || "#1a2744"} onChange={(e) => updateDraftOverlay({ backgroundColor: e.target.value })} className="w-8 h-8 p-0 border-0 rounded cursor-pointer" />
+              </div>
+              <div className="flex items-center gap-2">
+                <Droplets className="w-4 h-4 text-slate-500" />
+                <span className="text-xs font-medium text-slate-600">Bg Opacity</span>
+                <input 
+                  type="range" 
+                  min="0" 
+                  max="1" 
+                  step="0.05"
+                  value={draftOverlay.backgroundOpacity ?? 1} 
+                  onChange={(e) => updateDraftOverlay({ backgroundOpacity: parseFloat(e.target.value) })}
+                  className="w-full h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
+                />
+                <span className="text-xs font-mono text-slate-500 min-w-[3rem] text-center">{Math.round((draftOverlay.backgroundOpacity ?? 1) * 100)}%</span>
               </div>
               <div className="flex items-center gap-2">
                 <Upload className="w-4 h-4 text-slate-500" />
