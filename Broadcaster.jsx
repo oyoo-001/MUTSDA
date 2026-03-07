@@ -842,47 +842,26 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
           <div className="space-y-3">
             <div className="flex items-center gap-2">
-              <span className="text-xs text-slate-500 font-medium w-12">Size</span>
-              <input 
-                type="range" 
-                min="16" 
-                max="72" 
-                value={draftOverlay.fontSize} 
-                onChange={(e) => updateDraftOverlay({ fontSize: parseInt(e.target.value) })}
-                className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
-              />
-              <span className="text-xs text-slate-500 w-8 text-right">{draftOverlay.fontSize}px</span>
-            </div>
-
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => updateDraftOverlay({ isFullScreen: !draftOverlay.isFullScreen })}
-                className={`flex-1 px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${draftOverlay.isFullScreen ? 'bg-[#1a2744] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-              >
-                {draftOverlay.isFullScreen ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />} Full Screen
-              </button>
               <button
                 onClick={() => updateDraftOverlay({ isVisible: !draftOverlay.isVisible })}
-                className={`flex-1 px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${draftOverlay.isVisible ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+                className={`w-full px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${draftOverlay.isVisible ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
               >
                 {draftOverlay.isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} {draftOverlay.isVisible ? 'Showing' : 'Hidden'}
               </button>
             </div>
 
-            {draftOverlay.isFullScreen && (
-              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-3">
-                <div className="flex items-center gap-2">
-                  <Palette className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-medium text-slate-600">Background Color</span>
-                  <input type="color" value={draftOverlay.backgroundColor || "#1a2744"} onChange={(e) => updateDraftOverlay({ backgroundColor: e.target.value })} className="w-8 h-8 p-0 border-0 rounded cursor-pointer" />
-                </div>
-                <div className="flex items-center gap-2">
-                  <Upload className="w-4 h-4 text-slate-500" />
-                  <span className="text-xs font-medium text-slate-600">Background Image</span>
-                  <input type="file" accept="image/*" onChange={handleBackgroundUpload} className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#c8a951]/10 file:text-[#c8a951] hover:file:bg-[#c8a951]/20" />
-                </div>
+            <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-3">
+              <div className="flex items-center gap-2">
+                <Palette className="w-4 h-4 text-slate-500" />
+                <span className="text-xs font-medium text-slate-600">Background Color</span>
+                <input type="color" value={draftOverlay.backgroundColor || "#1a2744"} onChange={(e) => updateDraftOverlay({ backgroundColor: e.target.value })} className="w-8 h-8 p-0 border-0 rounded cursor-pointer" />
               </div>
-            )}
+              <div className="flex items-center gap-2">
+                <Upload className="w-4 h-4 text-slate-500" />
+                <span className="text-xs font-medium text-slate-600">Background Image</span>
+                <input type="file" accept="image/*" onChange={handleBackgroundUpload} className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#c8a951]/10 file:text-[#c8a951] hover:file:bg-[#c8a951]/20" />
+              </div>
+            </div>
           </div>
 
           <div className="flex gap-2 pt-2">

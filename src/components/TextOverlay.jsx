@@ -21,12 +21,12 @@ export default function TextOverlay() {
       className={`absolute inset-0 z-40 flex items-center justify-center text-center transition-all duration-500 ${
         state.isFullScreen 
           ? 'p-12' 
-          : 'top-auto bottom-12 bg-black/60 p-6 backdrop-blur-sm'
+          : 'top-auto bottom-12 p-6 backdrop-blur-sm'
       }`}
-      style={state.isFullScreen ? { backgroundColor: state.backgroundColor || (state.backgroundImage ? 'transparent' : '#1a2744') } : {}}
+      style={{ backgroundColor: state.backgroundColor || (state.isFullScreen ? '#1a2744' : 'rgba(0, 0, 0, 0.6)') }}
     >
       <AnimatePresence>
-        {state.isFullScreen && state.backgroundImage && (
+        {state.backgroundImage && (
           <motion.div
             key={state.backgroundImage}
             initial={{ opacity: 0 }}
@@ -38,7 +38,7 @@ export default function TextOverlay() {
           />
         )}
       </AnimatePresence>
-      {state.isFullScreen && state.backgroundImage && (
+      {state.backgroundImage && (
         <div className="absolute inset-0 bg-black/50 z-[-1]" />
       )}
       <AnimatePresence mode="wait">
@@ -48,8 +48,8 @@ export default function TextOverlay() {
         animate={{ opacity: 1, y: 0 }}
         exit={{ opacity: 0, y: -10 }}
         transition={{ duration: 0.3 }}
-        style={{ fontSize: `${state.fontSize}px`, lineHeight: 1.5, whiteSpace: 'pre-wrap' }} 
-        className="font-serif font-medium text-white drop-shadow-lg max-w-4xl mx-auto"
+        style={{ lineHeight: 1.5, whiteSpace: 'pre-wrap' }} 
+        className="font-serif font-medium text-white drop-shadow-lg max-w-4xl mx-auto text-xl md:text-3xl lg:text-4xl"
       >
         {state.text}
       </motion.p>

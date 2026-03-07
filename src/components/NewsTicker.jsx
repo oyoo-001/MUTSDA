@@ -4,7 +4,7 @@ import { SOCKET_URL } from '@/api/base44Client';
 import { Megaphone, X } from 'lucide-react';
 
 export default function NewsTicker() {
-  const [ticker, setTicker] = useState({ message: "", textColor: "#1a2744", backgroundColor: "#c8a951" });
+  const [ticker, setTicker] = useState({ message: "", textColor: "#1a2744", backgroundColor: "#c8a951", speed: 95 });
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -14,7 +14,7 @@ export default function NewsTicker() {
         setTicker(tickerState);
         setIsVisible(!!tickerState.message);
       } else {
-        setTicker({ message: tickerState, textColor: "#1a2744", backgroundColor: "#c8a951" });
+        setTicker({ message: tickerState, textColor: "#1a2744", backgroundColor: "#c8a951", speed: 95 });
         setIsVisible(!!tickerState);
       }
     });
@@ -34,7 +34,7 @@ export default function NewsTicker() {
           .ticker-track {
             display: inline-flex;
             white-space: nowrap;
-            animation: snakeWalk 95s linear infinite;
+            animation: snakeWalk ${ticker.speed || 95}s linear infinite;
             will-change: transform;
           }
           .ticker-container:hover .ticker-track {

@@ -33,6 +33,7 @@ export default function AdminDashboard() {
   const [tickerMsg, setTickerMsg] = useState("");
   const [tickerColor, setTickerColor] = useState("#1a2744");
   const [tickerBgColor, setTickerBgColor] = useState("#c8a951");
+  const [tickerSpeed, setTickerSpeed] = useState(95);
   const socketRef = useRef(null);
   const queryClient = useQueryClient();
 
@@ -64,6 +65,7 @@ export default function AdminDashboard() {
           setTickerMsg(state.message || "");
           setTickerColor(state.textColor || "#1a2744");
           setTickerBgColor(state.backgroundColor || "#c8a951");
+          setTickerSpeed(state.speed || 95);
         }
       });
     }
@@ -136,7 +138,7 @@ export default function AdminDashboard() {
 
   const handleUpdateTicker = () => {
     if (socketRef.current) {
-      socketRef.current.emit('admin_update_ticker', { message: tickerMsg, textColor: tickerColor, backgroundColor: tickerBgColor });
+      socketRef.current.emit('admin_update_ticker', { message: tickerMsg, textColor: tickerColor, backgroundColor: tickerBgColor, speed: tickerSpeed });
       toast.success("News ticker updated live!");
       setTickerOpen(false);
     }
@@ -191,6 +193,11 @@ export default function AdminDashboard() {
                   <Label>Background Color</Label>
                   <Input type="color" value={tickerBgColor} onChange={(e) => setTickerBgColor(e.target.value)} className="w-full h-10 p-1" />
                 </div>
+              </div>
+              <div>
+                <Label>Scroll Speed (Duration in seconds)</Label>
+                <Input type="number" min="10" max="500" value={tickerSpeed} onChange={(e) => setTickerSpeed(Number(e.target.value))} />
+                <p className="text-xs text-gray-500 mt-1">Lower number = Faster speed. Higher number = Slower speed.</p>
               </div>
             </div>
             <DialogFooter>

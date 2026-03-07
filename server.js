@@ -74,8 +74,17 @@ const sequelize = new Sequelize(
 );
 
 sequelize.authenticate()
-  .then(() => console.log('MySQL Connected'))
-  .then(() => sequelize.sync({ alter: true })) // Sync all models to the DB (alter: true updates schema)
+  .then(() => {
+    console.log('MySQL Connected');
+    
+    if (process.env.NODE_ENV !== 'production') {
+      return sequelize.sync({ alter: true });
+    } else {
+      console.log('Production mode: Skipping sequelize.sync()');
+      return Promise.resolve();
+    }
+  })
+  .then(() => console.log('Database operation complete'))
   .catch(err => console.error('MySQL Connection Error:', err));
 
 // -----------------------------------------------------------------------------
@@ -1052,7 +1061,7 @@ app.use('/api/core', protect, admin, coreRouter);
 const supportQueue = []; // Array of { id, name, email, socketId }
 let activeSupportSession = null; // { adminSocketId, userSocketId, room, user }
 const onlineUsers = new Map(); // Map<socket.id, userObject>
-let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "#c8a951" }; // Store the active news ticker message and color
+let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "#c8a951", speed: 95 }; // Store the active news ticker message and color
 let currentTextOverlayState = { text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "" }; // Store text overlay state
 const activeStreams = new Set();
 const broadcasters = {}; // streamId -> socketId
