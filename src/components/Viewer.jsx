@@ -101,13 +101,22 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
 
   const toggleFullscreen = () => {
       if (!document.fullscreenElement) {
-          videoRef.current.parentElement.requestFullscreen().catch(err => {
+          try {
+              videoRef.current.requestFullscreen();
+              setIsFullscreen(true);
+              // Attempt to lock orientation to landscape on mobile
+              if (screen.orientation && screen.orientation.lock) {
+    screen.orientation.lock('landscape')
+      .catch(e => console.log('Orientation lock failed:', e));
+}
+          } catch (err) {
               console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-          });
-          setIsFullscreen(true);
+          }
       } else {
-          document.exitFullscreen();
-          setIsFullscreen(false);
+          document.exitFullscreen().catch(e => console.error(e));
+          if (screen.orientation && screen.orientation.unlock) {
+              screen.orientation.unlock();
+          }
       }
   };
 

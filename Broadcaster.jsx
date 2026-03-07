@@ -57,6 +57,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const mediaRecorderRef = useRef(null);
   const recordedChunksRef = useRef([]);
   const adminSocketRef = useRef(null);
+  const verseInputRef = useRef(null);
 
   const getCameras = async () => {
     try {
@@ -565,7 +566,13 @@ const Broadcaster = ({ streamId = 'default' }) => {
   };
 
   const handleVerseQueryChange = (e) => {
-    const value = e.target.value;
+    let value = e.target.value;
+
+    // Auto-format: replace "number space number" with "number:number" for chapter:verse
+    if (/\d\s\d/.test(value)) {
+      value = value.replace(/(\d+)\s+(\d+)/g, '$1:$2');
+    }
+
     setVerseQuery(value);
 
     if (value) {
@@ -793,17 +800,10 @@ const Broadcaster = ({ streamId = 'default' }) => {
         </div>
         <div className="p-6 space-y-4">
           <div className="flex gap-2">
-            <select 
-              value={verseTranslation}
-              onChange={(e) => setVerseTranslation(e.target.value)}
-              className="w-32 p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent bg-slate-50"
-            >
-              <option value="kjv">English</option>
-              <option value="swahili">Swahili</option>
-              <option value="luo">Luo</option>
-            </select>
+            
             <div className="relative flex-1">
               <input 
+                ref={verseInputRef}
                 type="text" 
                 value={verseQuery}
                 onChange={handleVerseQueryChange}
