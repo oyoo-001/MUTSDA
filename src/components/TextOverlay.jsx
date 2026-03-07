@@ -4,7 +4,7 @@ import { SOCKET_URL } from '@/api/base44Client';
 import { motion, AnimatePresence } from "framer-motion";
 
 export default function TextOverlay() {
-  const [state, setState] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
+  const [state, setState] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "" });
 
   useEffect(() => {
     const socket = io(SOCKET_URL);
@@ -23,7 +23,7 @@ export default function TextOverlay() {
           ? 'p-12' 
           : 'top-auto bottom-12 bg-black/60 p-6 backdrop-blur-sm'
       }`}
-      style={state.isFullScreen ? { backgroundColor: state.backgroundImage ? 'transparent' : '#1a2744' } : {}}
+      style={state.isFullScreen ? { backgroundColor: state.backgroundColor || (state.backgroundImage ? 'transparent' : '#1a2744') } : {}}
     >
       <AnimatePresence>
         {state.isFullScreen && state.backgroundImage && (

@@ -1,10 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import io from 'socket.io-client';
-import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send, X, Zap, ZapOff } from 'lucide-react';
+import { Radio, Video, VideoOff, Mic, MicOff, Settings, MonitorPlay, RefreshCw, Camera, Users, Disc, Square, AlertTriangle, Monitor, ZoomIn, Type, Maximize, Minimize, Eye, EyeOff, Send, X, Zap, ZapOff, Upload, Palette, Search, Loader2 } from 'lucide-react';
 import { SOCKET_URL } from './src/api/base44Client';
 import Viewer from './src/components/Viewer';
 import NewsTicker from './src/components/NewsTicker';
 import TextOverlay from './src/components/TextOverlay';
+import { apiClient } from './src/api/base44Client';
 import { toast } from "sonner";
 
 const PRESET_VERSES = [
@@ -17,6 +18,11 @@ const PRESET_VERSES = [
   { label: "Welcome", text: "Welcome to our Live Service! We are glad you are here." },
   { label: "Starting Soon", text: "The service will begin shortly. Please stay tuned." },
   { label: "Benediction", text: "The Lord bless you and keep you; the Lord make his face shine on you and be gracious to you." }
+];
+
+const BIBLE_BOOKS = [
+  "Genesis", "Exodus", "Leviticus", "Numbers", "Deuteronomy", "Joshua", "Judges", "Ruth", "1 Samuel", "2 Samuel", "1 Kings", "2 Kings", "1 Chronicles", "2 Chronicles", "Ezra", "Nehemiah", "Esther", "Job", "Psalms", "Proverbs", "Ecclesiastes", "Song of Solomon", "Isaiah", "Jeremiah", "Lamentations", "Ezekiel", "Daniel", "Hosea", "Joel", "Amos", "Obadiah", "Jonah", "Micah", "Nahum", "Habakkuk", "Zephaniah", "Haggai", "Zechariah", "Malachi",
+  "Matthew", "Mark", "Luke", "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
 const Broadcaster = ({ streamId = 'default' }) => {
@@ -32,11 +38,16 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const [videoEnabled, setVideoEnabled] = useState(true);
   const [remoteStreamActive, setRemoteStreamActive] = useState(false);
   const [zoomSettings, setZoomSettings] = useState(null);
-  const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
-  const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "" });
+  const [textOverlay, setTextOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744" });
+  const [draftOverlay, setDraftOverlay] = useState({ text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744" });
   const [hasTorch, setHasTorch] = useState(false);
   const [isTorchOn, setIsTorchOn] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
+  const [verseQuery, setVerseQuery] = useState("");
+  const [isFetchingVerse, setIsFetchingVerse] = useState(false);
+  const [verseTranslation, setVerseTranslation] = useState("kjv");
+  const [suggestions, setSuggestions] = useState([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
   
   const videoRef = useRef(null);
   const containerRef = useRef(null);
@@ -510,6 +521,59 @@ const Broadcaster = ({ streamId = 'default' }) => {
     toast.success("Overlay cleared!");
   };
 
+  const handleBackgroundUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    try {
+      toast.info("Uploading background...");
+      const { file_url } = await apiClient.integrations.Core.UploadFile({ file });
+      updateDraftOverlay({ backgroundImage: file_url });
+      toast.success("Background uploaded!");
+    } catch (error) {
+      console.error("Upload failed", error);
+      toast.error("Failed to upload background");
+    }
+  };
+
+  const handleFetchVerse = async () => {
+    if (!verseQuery) return;
+    setIsFetchingVerse(true);
+    try {
+      const response = await fetch(`https://bible-api.com/${encodeURIComponent(verseQuery)}?translation=${verseTranslation}`);
+      const data = await response.json();
+      if (data.error || !data.text) {
+        toast.error("Verse not found.");
+      } else {
+        updateDraftOverlay({ text: `${data.text.trim()}\n\n(${data.reference} ${verseTranslation.toUpperCase()})` });
+        toast.success("Verse loaded!");
+      }
+    } catch (error) {
+      toast.error("Failed to fetch verse.");
+    } finally {
+      setIsFetchingVerse(false);
+    }
+  };
+
+  const handleVerseQueryChange = (e) => {
+    const value = e.target.value;
+    setVerseQuery(value);
+
+    if (value) {
+      const filtered = BIBLE_BOOKS.filter(book => 
+        book.toLowerCase().startsWith(value.toLowerCase())
+      );
+      setSuggestions(filtered);
+      setShowSuggestions(filtered.length > 0);
+    } else {
+      setShowSuggestions(false);
+    }
+  };
+
+  const selectSuggestion = (book) => {
+    setVerseQuery(book + " ");
+    setShowSuggestions(false);
+  };
+
   if (remoteStreamActive) {
     return (
       <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
@@ -528,13 +592,14 @@ const Broadcaster = ({ streamId = 'default' }) => {
   }
 
   return (
-    <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
-      {/* Header */}
-      <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
-        <h2 className="text-lg font-bold text-[#1a2744] flex items-center gap-2">
-          <Radio className={`w-5 h-5 ${isStreaming ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
-          Live Stream Manager
-        </h2>
+    <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 max-w-7xl mx-auto">
+      {/* LEFT COLUMN: Stream Manager */}
+      <div className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-fit">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          <h2 className="text-lg font-bold text-[#1a2744] flex items-center gap-2">
+            <Radio className={`w-5 h-5 ${isStreaming ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
+            Live Stream Manager
+          </h2>
         {isStreaming && (
           <div className="flex items-center gap-3">
             <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 border border-blue-200">
@@ -544,11 +609,17 @@ const Broadcaster = ({ streamId = 'default' }) => {
             <span className="bg-red-100 text-red-600 text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 border border-red-200">
               <span className="w-2 h-2 bg-red-500 rounded-full animate-pulse"></span> LIVE
             </span>
+            <button 
+              onClick={toggleAudio}
+              className={`flex items-center gap-2 px-3 py-1.5 rounded-full text-xs font-bold transition-colors border ${audioEnabled ? 'bg-green-100 text-green-700 border-green-200' : 'bg-red-100 text-red-700 border-red-200'}`}
+            >
+              {audioEnabled ? <Mic className="w-3 h-3" /> : <MicOff className="w-3 h-3" />}
+              {audioEnabled ? 'Mic On' : 'Mic Muted'}
+            </button>
           </div>
         )}
-      </div>
-      
-      <div className="p-6">
+        </div>
+        <div className="p-6">
         {/* Camera Selection */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-600 mb-2 flex items-center gap-2">
@@ -671,91 +742,6 @@ const Broadcaster = ({ streamId = 'default' }) => {
           </div>
         )}
 
-        {/* Text Overlay Controls */}
-        {isCameraActive && (
-          <div className="mb-6 bg-slate-50 p-4 rounded-xl border border-slate-100">
-            <div className="flex items-center justify-between mb-3">
-              <h3 className="text-sm font-bold text-[#1a2744] flex items-center gap-2">
-                <Type className="w-4 h-4" /> Text Overlay (Draft)
-              </h3>
-              <button onClick={handleSyncFromLive} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
-                <RefreshCw className="w-3 h-3" /> Sync from Live
-              </button>
-            </div>
-            <div className="space-y-3">
-              <select 
-                className="w-full p-2 rounded-lg border border-slate-200 text-sm bg-white focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (val) updateDraftOverlay({ text: val });
-                }}
-              >
-                {PRESET_VERSES.map((p, i) => (
-                  <option key={i} value={p.text}>{p.label}</option>
-                ))}
-              </select>
-              <textarea
-                value={draftOverlay.text}
-                onChange={(e) => updateDraftOverlay({ text: e.target.value })}
-                placeholder="Enter Bible verse or song lyrics here..."
-                className="w-full p-3 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent min-h-[80px]"
-              />
-              <div className="flex flex-wrap items-center gap-4">
-                <div className="flex items-center gap-2 flex-1 min-w-[200px]">
-                  <span className="text-xs text-slate-500 font-medium">Size: {draftOverlay.fontSize}px</span>
-                  <input 
-                    type="range" 
-                    min="16" 
-                    max="72" 
-                    value={draftOverlay.fontSize} 
-                    onChange={(e) => updateDraftOverlay({ fontSize: parseInt(e.target.value) })}
-                    className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
-                  />
-                </div>
-                <div className="flex gap-2">
-                  <button
-                    onClick={() => updateDraftOverlay({ isFullScreen: !draftOverlay.isFullScreen })}
-                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors ${draftOverlay.isFullScreen ? 'bg-[#1a2744] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    {draftOverlay.isFullScreen ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />} Full Screen
-                  </button>
-                  <button
-                    onClick={() => updateDraftOverlay({ isVisible: !draftOverlay.isVisible })}
-                    className={`px-3 py-1.5 rounded-md text-xs font-bold flex items-center gap-1.5 transition-colors ${draftOverlay.isVisible ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
-                  >
-                    {draftOverlay.isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} {draftOverlay.isVisible ? 'Showing' : 'Hidden'}
-                  </button>
-                </div>
-              </div>
-              {draftOverlay.isFullScreen && (
-                <div>
-                  <input 
-                    type="text" 
-                    value={draftOverlay.backgroundImage || ""} 
-                    onChange={(e) => updateDraftOverlay({ backgroundImage: e.target.value })}
-                    placeholder="Background Image URL (Full Screen Only)"
-                    className="w-full p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
-                  />
-                </div>
-              )}
-              <div className="flex gap-2 mt-2">
-                <button 
-                  onClick={handleClearOverlay}
-                  className="flex-1 bg-red-100 text-red-700 font-bold py-2 px-4 rounded-lg hover:bg-red-200 transition-all flex items-center justify-center gap-2"
-                >
-                  <X className="w-4 h-4" /> Clear
-                </button>
-                <button 
-                  onClick={handleGoLive}
-                  className="flex-[2] bg-green-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2"
-                >
-                  <Send className="w-4 h-4" /> Go Live
-                </button>
-              </div>
-            </div>
-          </div>
-        )}
-
         {/* Main Action Button */}
         {!isCameraActive ? (
           <button 
@@ -779,6 +765,141 @@ const Broadcaster = ({ streamId = 'default' }) => {
             <Radio className="w-5 h-5" /> End Broadcast
           </button>
         )}
+        </div>
+      </div>
+
+      {/* RIGHT COLUMN: Text Overlay Manager */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-fit">
+        <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
+          <h3 className="text-lg font-bold text-[#1a2744] flex items-center gap-2">
+            <Type className="w-5 h-5" /> Text Overlay
+          </h3>
+          <button onClick={handleSyncFromLive} className="text-xs text-blue-600 hover:underline flex items-center gap-1">
+            <RefreshCw className="w-3 h-3" /> Sync
+          </button>
+        </div>
+        <div className="p-6 space-y-4">
+          <div className="flex gap-2">
+            <select 
+              value={verseTranslation}
+              onChange={(e) => setVerseTranslation(e.target.value)}
+              className="w-32 p-2 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent bg-slate-50"
+            >
+              <option value="kjv">English</option>
+              <option value="swahili">Swahili</option>
+              <option value="luo">Luo</option>
+            </select>
+            <div className="relative flex-1">
+              <input 
+                type="text" 
+                value={verseQuery}
+                onChange={handleVerseQueryChange}
+                onKeyDown={(e) => e.key === 'Enter' && handleFetchVerse()}
+                placeholder="Search verse (e.g. John 3:16)"
+                className="w-full p-2 pr-8 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
+              />
+              {verseQuery && (
+                <button 
+                  onClick={() => { setVerseQuery(""); setShowSuggestions(false); }}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              )}
+              {showSuggestions && (
+                <ul className="absolute z-50 left-0 right-0 mt-1 max-h-60 overflow-auto bg-white border border-slate-200 rounded-lg shadow-lg">
+                  {suggestions.map(book => (
+                    <li key={book} onClick={() => selectSuggestion(book)} className="p-2 hover:bg-slate-100 cursor-pointer text-sm text-slate-700">
+                      {book}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            
+            <button onClick={handleFetchVerse} disabled={isFetchingVerse} className="bg-slate-100 hover:bg-slate-200 text-slate-700 p-2 rounded-lg transition-colors">
+              {isFetchingVerse ? <Loader2 className="w-4 h-4 animate-spin" /> : <Search className="w-4 h-4" />}
+            </button>
+          </div>
+          <select 
+            className="w-full p-2 rounded-lg border border-slate-200 text-sm bg-white focus:ring-2 focus:ring-[#c8a951] focus:border-transparent"
+            onChange={(e) => {
+              const val = e.target.value;
+              if (val) updateDraftOverlay({ text: val });
+            }}
+          >
+            {PRESET_VERSES.map((p, i) => (
+              <option key={i} value={p.text}>{p.label}</option>
+            ))}
+          </select>
+          
+          <textarea
+            value={draftOverlay.text}
+            onChange={(e) => updateDraftOverlay({ text: e.target.value })}
+            placeholder="Enter Bible verse or song lyrics here..."
+            className="w-full p-3 rounded-lg border border-slate-200 text-sm focus:ring-2 focus:ring-[#c8a951] focus:border-transparent min-h-[120px]"
+          />
+
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 font-medium w-12">Size</span>
+              <input 
+                type="range" 
+                min="16" 
+                max="72" 
+                value={draftOverlay.fontSize} 
+                onChange={(e) => updateDraftOverlay({ fontSize: parseInt(e.target.value) })}
+                className="flex-1 h-1 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-[#c8a951]"
+              />
+              <span className="text-xs text-slate-500 w-8 text-right">{draftOverlay.fontSize}px</span>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => updateDraftOverlay({ isFullScreen: !draftOverlay.isFullScreen })}
+                className={`flex-1 px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${draftOverlay.isFullScreen ? 'bg-[#1a2744] text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                {draftOverlay.isFullScreen ? <Minimize className="w-3 h-3" /> : <Maximize className="w-3 h-3" />} Full Screen
+              </button>
+              <button
+                onClick={() => updateDraftOverlay({ isVisible: !draftOverlay.isVisible })}
+                className={`flex-1 px-3 py-2 rounded-md text-xs font-bold flex items-center justify-center gap-1.5 transition-colors ${draftOverlay.isVisible ? 'bg-green-600 text-white' : 'bg-white border border-slate-200 text-slate-600 hover:bg-slate-50'}`}
+              >
+                {draftOverlay.isVisible ? <Eye className="w-3 h-3" /> : <EyeOff className="w-3 h-3" />} {draftOverlay.isVisible ? 'Showing' : 'Hidden'}
+              </button>
+            </div>
+
+            {draftOverlay.isFullScreen && (
+              <div className="p-3 bg-slate-50 rounded-lg border border-slate-100 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-600">Background Color</span>
+                  <input type="color" value={draftOverlay.backgroundColor || "#1a2744"} onChange={(e) => updateDraftOverlay({ backgroundColor: e.target.value })} className="w-8 h-8 p-0 border-0 rounded cursor-pointer" />
+                </div>
+                <div className="flex items-center gap-2">
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-600">Background Image</span>
+                  <input type="file" accept="image/*" onChange={handleBackgroundUpload} className="text-xs text-slate-500 file:mr-2 file:py-1 file:px-2 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-[#c8a951]/10 file:text-[#c8a951] hover:file:bg-[#c8a951]/20" />
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="flex gap-2 pt-2">
+            <button 
+              onClick={handleClearOverlay}
+              className="flex-1 bg-red-50 text-red-600 font-bold py-2.5 px-4 rounded-lg hover:bg-red-100 transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <X className="w-4 h-4" /> Clear
+            </button>
+            <button 
+              onClick={handleGoLive}
+              className="flex-[2] bg-green-600 text-white font-bold py-2.5 px-4 rounded-lg hover:bg-green-700 transition-all flex items-center justify-center gap-2 text-sm"
+            >
+              <Send className="w-4 h-4" /> Go Live
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
