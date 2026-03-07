@@ -10,10 +10,12 @@ import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import https from 'https';
-import nodemailer from 'nodemailer';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { Resend } from 'resend';
+import { OAuth2Client } from 'google-auth-library';
+
 
 dotenv.config();
 
@@ -265,19 +267,36 @@ const admin = (req, res, next) => {
 // -----------------------------------------------------------------------------
 
 // Helper function for sending email
-const sendEmail = async (options) => {
-  const transporter = nodemailer.createTransport({
-    host: process.env.SMTP_HOST,
-    port: parseInt(process.env.SMTP_PORT || "465"),
-    secure: true, // true for port 465 (SSL)
-    auth: {
-      user: process.env.SMTP_EMAIL,
-      pass: process.env.SMTP_PASSWORD,
-    },
-  });
 
-  const message = {
-    from: `"${process.env.FROM_NAME}" <${process.env.FROM_EMAIL}>`,
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
+
+import nodemailer from 'nodemailer';
+
+// Create a transporter object using the default SMTP transport
+const transporter = nodemailer.createTransport({
+  host: process.env.SMTP_HOST || process.env.EMAIL_HOST,
+  port: process.env.SMTP_PORT || process.env.EMAIL_PORT || 587,
+  secure: (process.env.SMTP_PORT || process.env.EMAIL_PORT) == 465,
+  auth: {
+    user: process.env.SMTP_EMAIL || process.env.EMAIL_USER,
+    pass: process.env.SMTP_PASSWORD || process.env.EMAIL_PASS,
+  },
+});
+
+const sendEmail = async (options) => {
+  // Check for required environment variables
+  const host = process.env.SMTP_HOST || process.env.EMAIL_HOST;
+  const user = process.env.SMTP_EMAIL || process.env.EMAIL_USER;
+  const pass = process.env.SMTP_PASSWORD || process.env.EMAIL_PASS;
+  const from = process.env.FROM_EMAIL;
+
+  if (!host || !user || !pass || !from) {
+    console.error('Email configuration missing. Please check SMTP_HOST, SMTP_EMAIL, SMTP_PASSWORD, and FROM_EMAIL in .env');
+    return Promise.reject('Email service not configured.');
+  }
+
+  const mailOptions = {
+    from: `"${process.env.FROM_NAME || 'MUTSDA Church'}" <${process.env.FROM_EMAIL}>`,
     to: options.email,
     subject: options.subject,
     text: options.message,
@@ -285,12 +304,12 @@ const sendEmail = async (options) => {
   };
 
   try {
-    const info = await transporter.sendMail(message);
-    console.log('Message sent: %s', info.messageId);
+    const info = await transporter.sendMail(mailOptions);
+    console.log('Message sent successfully: %s', info.messageId);
     return info;
   } catch (error) {
-    console.error('Email Error:', error);
-    throw error;
+    console.error('Nodemailer Send Error:', error.message);
+    throw new Error('Failed to send email.');
   }
 };
 
@@ -447,6 +466,45 @@ const authController = {
     } catch (err) {
       console.error('Error in auth login:', err);
       res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  googleLogin: async (req, res) => {
+    const { token } = req.body;
+    try {
+      const ticket = await googleClient.verifyIdToken({
+        idToken: token,
+        audience: process.env.GOOGLE_CLIENT_ID,
+      });
+      const { name, email, picture } = ticket.getPayload();
+
+      let user = await User.findOne({ where: { email } });
+
+      if (!user) {
+        // Create new user if they don't exist
+        const salt = await bcrypt.genSalt(10);
+        const randomPassword = crypto.randomBytes(16).toString('hex');
+        const hashedPassword = await bcrypt.hash(randomPassword, salt);
+
+        user = await User.create({
+          full_name: name,
+          email,
+          password: hashedPassword,
+          profile_photo_url: picture,
+          role: 'member',
+        });
+      }
+
+      res.json({
+        id: user.id,
+        full_name: user.full_name,
+        email: user.email,
+        role: user.role,
+        profile_photo_url: user.profile_photo_url,
+        token: jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' }),
+      });
+    } catch (err) {
+      console.error('Google Auth Error:', err);
+      res.status(401).json({ message: 'Google authentication failed' });
     }
   },
   getMe: async (req, res) => {
@@ -941,6 +999,7 @@ authRouter.post('/me/photo', protect, upload.single('photo'), async (req, res) =
 authRouter.post('/invite', protect, admin, authController.invite);
 authRouter.post('/register', authController.register);
 authRouter.post('/login', authController.login);
+authRouter.post('/google', authController.googleLogin);
 authRouter.get('/me', protect, authController.getMe);
 authRouter.post('/forgot-password', authController.forgotPassword);
 authRouter.post('/verify-otp', authController.verifyOtp);

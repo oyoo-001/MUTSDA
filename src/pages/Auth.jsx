@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '@/lib/AuthContext';
-import { apiClient } from '@/api/base44Client';
+import { apiClient, SOCKET_URL } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Church } from 'lucide-react';
 import { useToast } from "@/components/ui/use-toast";
+import { GoogleLogin } from '@react-oauth/google';
 
 export default function AuthPage() {
   const navigate = useNavigate();
@@ -227,6 +228,33 @@ export default function AuthPage() {
     }
   };
 
+  const handleGoogleSuccess = async (credentialResponse) => {
+    try {
+      setLoading(true);
+      // Use SOCKET_URL as base if available, or relative path
+      const baseUrl = typeof SOCKET_URL !== 'undefined' ? SOCKET_URL : 'http://localhost:5000';
+      const res = await fetch(`${baseUrl}/api/auth/google`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: credentialResponse.credential }),
+      });
+      const data = await res.json();
+
+      if (res.ok) {
+        localStorage.setItem('token', data.token);
+        toast({ variant: "success", title: "Login successful!", description: "Redirecting..." });
+        await checkUserAuth();
+        navigate(from, { replace: true });
+      } else {
+        throw new Error(data.message || 'Google login failed');
+      }
+    } catch (error) {
+      toast({ variant: "destructive", title: "Error", description: error.message });
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="min-h-screen flex items-center justify-center bg-[#faf8f2] p-4 font-sans">
       <div className="w-full max-w-md">
@@ -268,6 +296,20 @@ export default function AuthPage() {
                   </div>
                   <Button type="submit" className="w-full bg-[#1a2744] hover:bg-[#2d5f8a] text-white font-semibold" disabled={loading}>{loading ? 'Signing In...' : 'Sign In'}</Button>
                 </form>
+                
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-gray-500">Or continue with</span></div>
+                </div>
+                
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => {
+                      toast({ variant: "destructive", title: "Login Failed", description: "Google login was unsuccessful." });
+                    }}
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
@@ -286,6 +328,20 @@ export default function AuthPage() {
                   <div className="space-y-1.5"><Label htmlFor="confirm_password">Confirm Password</Label><Input id="confirm_password" name="confirm_password" type="password" required /></div>
                   <Button type="submit" className="w-full bg-[#c8a951] hover:bg-[#b89941] text-[#1a2744] font-semibold" disabled={loading}>{loading ? 'Creating Account...' : 'Create Account'}</Button>
                 </form>
+
+                <div className="relative my-4">
+                  <div className="absolute inset-0 flex items-center"><span className="w-full border-t" /></div>
+                  <div className="relative flex justify-center text-xs uppercase"><span className="bg-white px-2 text-gray-500">Or continue with</span></div>
+                </div>
+                
+                <div className="flex justify-center">
+                  <GoogleLogin
+                    onSuccess={handleGoogleSuccess}
+                    onError={() => {
+                      toast({ variant: "destructive", title: "Login Failed", description: "Google login was unsuccessful." });
+                    }}
+                  />
+                </div>
               </CardContent>
             </Card>
           </TabsContent>
