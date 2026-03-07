@@ -574,31 +574,23 @@ const Broadcaster = ({ streamId = 'default' }) => {
     setShowSuggestions(false);
   };
 
-  if (remoteStreamActive) {
-    return (
-      <div className="bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden max-w-3xl mx-auto">
-        <div className="p-4 border-b border-slate-100 bg-amber-50 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-amber-800 flex items-center gap-2">
-            <AlertTriangle className="w-5 h-5" />
-            Stream in Progress
-          </h2>
-          <span className="text-xs text-amber-700 font-medium">Another admin is currently streaming. You can watch below.</span>
-        </div>
-        <div className="p-6">
-          <Viewer streamId={streamId} isBroadcasting={true} />
-        </div>
-      </div>
-    );
-  }
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 max-w-7xl mx-auto">
       {/* LEFT COLUMN: Stream Manager */}
       <div className="xl:col-span-2 bg-white rounded-xl shadow-sm border border-slate-200 overflow-hidden h-fit">
         <div className="p-4 border-b border-slate-100 bg-slate-50/50 flex items-center justify-between">
           <h2 className="text-lg font-bold text-[#1a2744] flex items-center gap-2">
-            <Radio className={`w-5 h-5 ${isStreaming ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
-            Live Stream Manager
+            {remoteStreamActive ? (
+              <>
+                <AlertTriangle className="w-5 h-5 text-amber-500" />
+                Stream in Progress (Remote)
+              </>
+            ) : (
+              <>
+                <Radio className={`w-5 h-5 ${isStreaming ? 'text-red-500 animate-pulse' : 'text-slate-400'}`} />
+                Live Stream Manager
+              </>
+            )}
           </h2>
         {isStreaming && (
           <div className="flex items-center gap-3">
@@ -620,6 +612,15 @@ const Broadcaster = ({ streamId = 'default' }) => {
         )}
         </div>
         <div className="p-6">
+        {remoteStreamActive ? (
+          <div className="space-y-4">
+            <div className="bg-amber-50 border border-amber-200 text-amber-800 px-4 py-3 rounded-lg text-sm">
+              Another admin is currently broadcasting. You can manage the text overlay on the right.
+            </div>
+            <Viewer streamId={streamId} isBroadcasting={true} />
+          </div>
+        ) : (
+          <>
         {/* Camera Selection */}
         <div className="mb-6">
           <label className="block text-sm font-medium text-slate-600 mb-2 flex items-center gap-2">
@@ -764,6 +765,8 @@ const Broadcaster = ({ streamId = 'default' }) => {
           >
             <Radio className="w-5 h-5" /> End Broadcast
           </button>
+        )}
+          </>
         )}
         </div>
       </div>
