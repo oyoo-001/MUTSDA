@@ -361,7 +361,7 @@ export default function Layout({ children, currentPageName }) {
             </div>
             <div className="border-t border-white/10 mt-10 pt-6 text-center text-xs text-white/40">
               © {new Date().getFullYear()} SDA Church. All rights reserved. 
-            <br></br>Powered by <a href="https://mcokothtechnologies.onrender.com/" target="_blank" rel="noopener noreferrer" className="text-[#c8a951] hover:underline">McOKOTH Technologies</a>
+            <br></br>Powered by <a href="https://mcokothtechnologies.vercel.app/" target="_blank" rel="noopener noreferrer" className="text-[#c8a951] hover:underline">McOKOTH Technologies</a>
             </div>
           </div>
         </footer>
