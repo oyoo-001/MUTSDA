@@ -1,70 +1,71 @@
-import React from 'react';
-import { useQuery } from '@tanstack/react-query';
-import { AlertTriangle, Megaphone } from 'lucide-react';
-import { apiClient } from '@/api/base44Client';
+import React from "react";
+import { Bell, Pin, Share2 } from "lucide-react"; // Added Share2
+import { motion } from "framer-motion";
+import { toast } from "sonner";
 
-export function AnnouncementsBanner() {
-  const {
-    data: announcements,
-    isLoading,
-    isError,
-  } = useQuery({
-    queryKey: ['announcements'],
-    queryFn: async () => {
-       const response = await apiClient.entities.Announcement.list();
-       // Some SDKs wrap the array in an object (e.g., response.items). 
-       // Adjust this line if your specific API returns an object.
-       return response; 
-    },
-    initialData: [],
-  });
+export default function AnnouncementsBanner({ announcements, onViewAnnouncement }) {
+  if (!announcements || announcements.length === 0) return null;
 
-  /**
-   * SAFETY CHECK: 
-   * Even with initialData, if the API returns something unexpected (like null),
-   * the code below could break. We use Array.isArray and optional chaining.
-   */
-  const pinnedAnnouncements = Array.isArray(announcements)
-    ? announcements.filter((a) => a?.pinned)
-    : [];
+  const pinned = announcements.filter(a => a.pinned);
+  const display = pinned.length > 0 ? pinned : announcements.slice(0, 2);
 
-  if (isError) {
-    return (
-      <div className="bg-red-50 border-l-4 border-red-500 text-red-700 p-4 mx-4 my-4 rounded" role="alert">
-        <p className="font-bold flex items-center text-sm">
-          <AlertTriangle className="mr-2 h-4 w-4" />
-          Could not load announcements.
-        </p>
-      </div>
-    );
-  }
-
-  // Handle loading state properly
-  if (isLoading && pinnedAnnouncements.length === 0) {
-    return null;
-  }
-
-  if (pinnedAnnouncements.length === 0) {
-    return null;
-  }
+  const handleShare = async (e, announcement) => {
+    e.stopPropagation(); // Prevents opening the modal when clicking share
+    const shareUrl = `${window.location.origin}${window.location.pathname}?announcement=${announcement.id}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: announcement.title,
+          url: shareUrl,
+        });
+      } catch (err) { console.log(err); }
+    } else {
+      await navigator.clipboard.writeText(shareUrl);
+      toast.success("Link copied to clipboard!");
+    }
+  };
 
   return (
-    <div className="bg-blue-50 border-l-4 border-blue-600 text-blue-900 p-4 mx-4 my-4 rounded-r-lg shadow-sm" role="alert">
-      <div className="space-y-4">
-        {pinnedAnnouncements.map((announcement) => (
-          <div key={announcement.id} className="flex items-start">
-            <div className="bg-blue-600 p-1.5 rounded-full mr-3 mt-0.5">
-               <Megaphone className="h-4 w-4 text-white flex-shrink-0" />
-            </div>
-            <div>
-              <p className="font-bold text-sm leading-tight">{announcement.title}</p>
-              {announcement.content && (
-                <p className="text-xs text-blue-800/80 mt-1">{announcement.content}</p>
-              )}
-            </div>
-          </div>
-        ))}
+    <section className="py-12 px-4 lg:px-8 bg-gradient-to-r from-[#1a2744] to-[#2d5f8a]">
+      <div className="max-w-7xl mx-auto">
+        <div className="flex items-center gap-2 mb-6">
+          <Bell className="w-5 h-5 text-[#c8a951]" />
+          <h3 className="text-white font-semibold">Church Announcements</h3>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {display.map((a, i) => (
+            <motion.div
+              key={a.id}
+              initial={{ opacity: 0, x: -20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              viewport={{ once: true }}
+              transition={{ delay: i * 0.1 }}
+              onClick={() => onViewAnnouncement && onViewAnnouncement(a)}
+              className="bg-white/10 backdrop-blur-sm rounded-xl p-5 border border-white/10 cursor-pointer hover:bg-white/20 transition-all group"
+            >
+              <div className="flex items-start gap-3">
+                {a.pinned && <Pin className="w-4 h-4 text-[#c8a951] mt-0.5 shrink-0" />}
+                <div className="flex-1">
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-semibold text-white text-sm mb-1 group-hover:text-[#c8a951] transition-colors">
+                      {a.title}
+                    </h4>
+                    {/* Inline Share Icon */}
+                    <button 
+                      onClick={(e) => handleShare(e, a)}
+                      className="p-1 hover:bg-white/20 rounded text-white/40 hover:text-[#c8a951] transition-colors"
+                    >
+                      <Share2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                  <p className="text-white/60 text-sm leading-relaxed line-clamp-2">{a.content}</p>
+                </div>
+              </div>
+            </motion.div>
+          ))}
+        </div>
       </div>
-    </div>
+    </section>
   );
 }

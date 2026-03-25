@@ -15,7 +15,7 @@ import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import { Resend } from 'resend';
 import { OAuth2Client } from 'google-auth-library';
-
+import fs from 'fs';
 
 dotenv.config();
 
@@ -1497,10 +1497,65 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 // 3. SPA Routing: MUST be the very last route. 
 // This handles the "MIME type" error by ensuring 404s on assets 
 // don't accidentally return index.html while the browser expects JS.
-app.get('*', (req, res) => {
-  const file = path.join(__dirname, 'dist', 'index.html');
-  res.sendFile(file);
-});
+app.get('*', async (req, res) => {
+  const indexPath = path.join(__dirname, 'dist', 'index.html');
+  const eventId = req.query.event;
+  const announcementId = req.query.announcement;
 
+  // Default Metadata
+  let meta = {
+    title: "MUTSDA - Seventh-day Adventist Church",
+    description: "Welcome to our church community. Join us for worship and upcoming events.",
+    image: "https://mutsda.onrender.com/default-og-image.jpg", // Change to your actual default banner
+    url: `https://mutsda.onrender.com${req.originalUrl}`
+  };
+
+  try {
+    // 1. If the link is for an Event
+    if (eventId) {
+      const event = await sequelize.models.Event.findByPk(eventId);
+      if (event) {
+        meta.title = event.title;
+        meta.description = event.description ? event.description.substring(0, 160) : meta.description;
+        meta.image = event.banner_image_url || meta.image;
+      }
+    } 
+    // 2. If the link is for an Announcement
+    else if (announcementId) {
+      const announcement = await sequelize.models.Announcement.findByPk(announcementId);
+      if (announcement) {
+        meta.title = `Update: ${announcement.title}`;
+        meta.description = announcement.content ? announcement.content.substring(0, 160) : meta.description;
+        // Use a specific announcement image or the church logo
+        meta.image = "https://mutsda.onrender.com/announcement-share-banner.jpg"; 
+      }
+    }
+  } catch (err) {
+    console.error("SEO/OG Metadata Fetch Error:", err);
+  }
+
+  // Read the index.html and inject the tags into the <head>
+  fs.readFile(indexPath, 'utf8', (err, htmlData) => {
+    if (err) {
+      return res.sendFile(indexPath); // Fallback if file read fails
+    }
+
+    const ogTags = `
+      <title>${meta.title}</title>
+      <meta name="description" content="${meta.description}" />
+      <meta property="og:title" content="${meta.title}" />
+      <meta property="og:description" content="${meta.description}" />
+      <meta property="og:image" content="${meta.image}" />
+      <meta property="og:url" content="${meta.url}" />
+      <meta property="og:type" content="website" />
+      <meta name="twitter:card" content="summary_large_image" />
+      <meta name="twitter:image" content="${meta.image}" />
+    `;
+
+    // Inject before the closing </head> tag
+    const finalHtml = htmlData.replace('</head>', `${ogTags}</head>`);
+    res.send(finalHtml);
+  });
+});
 const PORT = process.env.PORT || 5000;
 server.listen(PORT, () => console.log(`Server running on port ${PORT}`));

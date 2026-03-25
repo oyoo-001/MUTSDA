@@ -11,7 +11,8 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info } from "lucide-react";
+// Added Share2 to the lucide-react imports
+import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -81,7 +82,6 @@ export default function Events() {
     loadUser();
   }, []);
 
-  // 1. Defensively fetch events
   const { data: eventsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["events"],
     queryFn: async () => {
@@ -91,15 +91,26 @@ export default function Events() {
     initialData: [],
   });
 
+  // Updated useEffect to handle the share link (?event=ID)
   useEffect(() => {
     const watchId = searchParams.get("watch");
-    if (watchId && eventsData.length > 0) {
-      const eventToWatch = eventsData.find(e => e.id.toString() === watchId);
-      if (eventToWatch) setSelectedVideo(eventToWatch);
+    const eventId = searchParams.get("event"); 
+
+    if (eventsData.length > 0) {
+      // Handle video watch link
+      if (watchId) {
+        const eventToWatch = eventsData.find(e => e.id.toString() === watchId);
+        if (eventToWatch) setSelectedVideo(eventToWatch);
+      }
+
+      // Handle direct event share link
+      if (eventId) {
+        const eventToView = eventsData.find(e => e.id.toString() === eventId);
+        if (eventToView) setViewingDetails(eventToView);
+      }
     }
   }, [eventsData, searchParams]);
 
-  // 2. Defensively fetch RSVPs
   const { data: rsvpsData } = useQuery({
     queryKey: ["my-rsvps", user?.email],
     queryFn: async () => {
@@ -127,7 +138,6 @@ export default function Events() {
     onError: () => toast.error("Failed to RSVP. Please try again.")
   });
 
-  // Safe checks for the lists
   const events = useMemo(() => {
     const list = Array.isArray(eventsData) ? eventsData : [];
     if (filter === "all") return list;
@@ -157,9 +167,32 @@ export default function Events() {
     }
   };
 
+  // Logic to share the specific event link
+  const handleShare = async (event) => {
+    const shareUrl = `${window.location.origin}${location.pathname}?event=${event.id}`;
+    
+    if (navigator.share) {
+      try {
+        await navigator.share({
+          title: event.title,
+          text: `Join us for: ${event.title}`,
+          url: shareUrl,
+        });
+      } catch (err) {
+        console.log('Error sharing:', err);
+      }
+    } else {
+      try {
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success("Event link copied to clipboard!");
+      } catch (err) {
+        toast.error("Failed to copy link.");
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-[#faf8f2]">
-      {/* Video Playback Modal */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl p-0 bg-black border-none overflow-hidden rounded-2xl">
           <DialogHeader className="sr-only"><DialogTitle>{selectedVideo?.title}</DialogTitle></DialogHeader>
@@ -178,7 +211,6 @@ export default function Events() {
         </DialogContent>
       </Dialog>
 
-      {/* Details Modal */}
       <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
         <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
           <DialogHeader>
@@ -202,6 +234,11 @@ export default function Events() {
             {viewingDetails?.description && (
               <div className="text-sm text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{viewingDetails.description}</div>
             )}
+            <div className="pt-4 border-t flex justify-end">
+               <Button onClick={() => handleShare(viewingDetails)} variant="outline" className="gap-2">
+                  <Share2 className="w-4 h-4" /> Share Event
+               </Button>
+            </div>
           </div>
         </DialogContent>
       </Dialog>
@@ -226,7 +263,6 @@ export default function Events() {
         </div>
       </section>
 
-      {/* Filters */}
       <section className="py-8 px-4 lg:px-8 border-b bg-white sticky top-16 z-30">
         <div className="max-w-5xl mx-auto flex justify-center">
           <Tabs value={filter} onValueChange={setFilter}>
@@ -258,7 +294,7 @@ export default function Events() {
           ) : events.length === 0 ? (
             <div className="text-center py-20">
               <Calendar className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-              <h3 className="text-lg font-semibold text-gray-400">No upcoming events</h3>
+              <h3 className="text-lg font-semibold text-gray-400">No events found</h3>
             </div>
           ) : (
             events.map((event, i) => (
@@ -335,12 +371,20 @@ export default function Events() {
                           </Badge>
                         )}
                         {!user && event.rsvp_enabled && (
-                          <Button size="sm" variant="outline" onClick={() => apiClient.auth.redirectToLogin()}>
-                            Sign in to RSVP
+                          <Button 
+                          size="sm" 
+                          variant="outline" 
+                          onClick={() => navigate("/auth", { state: { from: location } })}
+                                  >
+                          Sign in to RSVP
                           </Button>
                         )}
                         <Button size="sm" variant="ghost" className="gap-1.5 text-gray-500" onClick={() => setViewingDetails(event)}>
                           <Info className="w-3.5 h-3.5" /> Info
+                        </Button>
+                        {/* New Share Button */}
+                        <Button size="sm" variant="ghost" className="gap-1.5 text-blue-600" onClick={() => handleShare(event)}>
+                          <Share2 className="w-3.5 h-3.5" /> Share
                         </Button>
                       </div>
                     </div>
