@@ -80,7 +80,7 @@ sequelize.authenticate()
     console.log('MySQL Connected');
     
     if (process.env.NODE_ENV !== 'production') {
-      return sequelize.sync({ alter: true });
+      return sequelize.sync();
     } else {
       console.log('Production mode: Skipping sequelize.sync()');
       return Promise.resolve();
