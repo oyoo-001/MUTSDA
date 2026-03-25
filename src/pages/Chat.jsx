@@ -129,6 +129,7 @@ export default function Chat() {
   const [editingMessage, setEditingMessage] = useState(null);
   const [viewingProfilePhoto, setViewingProfilePhoto] = useState(null);
   const fileInputRef = useRef(null);
+  const textareaRef = useRef(null);
   
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
@@ -349,6 +350,13 @@ export default function Chat() {
     const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
     const socket = socketRef.current;
     setInput(e.target.value);
+
+    // Auto-resize textarea
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + 'px';
+    }
+
     if (!user) return;
     if (!isTypingRef.current) {
       isTypingRef.current = true;
@@ -484,6 +492,9 @@ export default function Chat() {
 
     socket.emit("sendMessage", payload);
     setInput("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
     setReplyingTo(null);
     setShowEmojiPicker(false);
     setSending(false);
@@ -506,6 +517,9 @@ export default function Chat() {
   const handleCancelEdit = () => {
     setEditingMessage(null);
     setInput("");
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+    }
   };
 
   const handleChannelSwitch = (channel) => {
@@ -786,11 +800,20 @@ export default function Chat() {
                   <Smile className="w-5 h-5" />
                 </Button>
               </div>
-              <Input
+              <textarea
+                ref={textareaRef}
                 value={input}
                 onChange={handleInputChange}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    sendMessage(e);
+                  }
+                }}
                 placeholder={editingMessage ? "Edit your message..." : `Message ${activeChannel.name}...`}
-                className="bg-gray-100 border-none rounded-full ring-offset-0 focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0"
+                rows={1}
+                className="flex-1 resize-none overflow-y-auto bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm ring-offset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
+                style={{ maxHeight: '160px', minHeight: '36px' }}
                 disabled={!user || sending}
               />
               <Button type="submit" className={cn("rounded-full h-9 w-9 p-0 flex items-center justify-center", editingMessage ? "bg-green-500 hover:bg-green-600 text-white" : "bg-[#0084ff] hover:bg-blue-600 text-white")} disabled={(!input.trim() && !sending) || sending}>
