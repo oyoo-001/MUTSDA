@@ -1073,7 +1073,7 @@ contactMessageRouter.post('/', contactMessageController.create); // Public
 contactMessageRouter.put('/:id/read', protect, admin, contactMessageController.markAsRead);
 
 const userRouter = express.Router(); // For admin to manage users
-userRouter.get('/', protect, admin, userController.getAll);
+userRouter.get('/', protect, userController.getAll);
 userRouter.get('/:id', protect, admin, userController.getById);
 userRouter.put('/:id', protect, admin, userController.update);
 userRouter.delete('/:id', protect, admin, userController.delete);
@@ -1652,6 +1652,8 @@ app.use(express.static(path.join(__dirname, 'dist')));
 
 // 2. Serve uploads if you still use local storage (though you use Cloudinary)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
+
+// 3. Serve the service worker file for PWA functionality
 app.get('/sw.js', (req, res) => {
   res.sendFile(path.resolve(__dirname, 'sw.js'));
 });
