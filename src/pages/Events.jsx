@@ -16,6 +16,10 @@ import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Vide
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
+// ── Countdown component ────────────────────────────────────────────────────
+// Parses event_date as EAT (UTC+3) regardless of the viewer's local timezone.
+// If the stored string already carries timezone info (Z, +03:00, etc.) it is
+// used as-is; otherwise +03:00 is appended before parsing.
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
 
@@ -26,10 +30,8 @@ function Countdown({ date }) {
 
   /**
    * Parse the event date as EAT (UTC+3).
-   * - If the stored string already carries timezone info (ends with Z, +HH:MM, etc.)
-   *   → use it directly; no adjustment needed.
-   * - If it's a naive string ("2025-06-01T10:00:00") → append +03:00 so the
-   *   browser treats it as Nairobi time instead of its own local zone.
+   * Naive strings like "2025-06-01T10:00:00" get +03:00 appended so the
+   * browser anchors them to Nairobi time instead of guessing the local zone.
    */
   const parseAsEAT = (dateStr) => {
     if (!dateStr) return null;
@@ -39,6 +41,7 @@ function Countdown({ date }) {
 
   const target = parseAsEAT(date);
 
+  // Hide the timer if the date is invalid or already in the past
   if (!target || isNaN(target.getTime()) || isPast(target)) return null;
 
   const pad = (n) => n.toString().padStart(2, "0");
@@ -97,7 +100,33 @@ export default function Events() {
   const [guestDisplayName, setGuestDisplayName] = useState("");
   // ─────────────────────────────────────────────────────────────────────────
 
+  // ── Active meeting + fullscreen ──────────────────────────────────────────
+  const [activeMeeting, setActiveMeeting] = useState(null);
+  const [jaasIframeSrc, setJaasIframeSrc] = useState("");
+  const [isFullscreen, setIsFullscreen] = useState(false);
+
+  const meetingModalRef = useRef(null);  // attached to DialogContent for fullscreen
   const jitsiContainerRef = useRef(null);
+
+  // Keep isFullscreen in sync with browser state (e.g. user presses Escape)
+  useEffect(() => {
+    const handleFsChange = () => setIsFullscreen(!!document.fullscreenElement);
+    document.addEventListener("fullscreenchange", handleFsChange);
+    return () => document.removeEventListener("fullscreenchange", handleFsChange);
+  }, []);
+
+  /**
+   * Toggle native browser fullscreen on the meeting modal wrapper.
+   * Does NOT navigate away — the user stays on the page at all times.
+   */
+  const toggleFullscreen = () => {
+    if (!document.fullscreenElement) {
+      meetingModalRef.current?.requestFullscreen?.();
+    } else {
+      document.exitFullscreen?.();
+    }
+  };
+  // ─────────────────────────────────────────────────────────────────────────
 
   useEffect(() => {
     const loadUser = async () => {
@@ -200,21 +229,17 @@ export default function Events() {
 
     if (isJitsi) {
       if (user) {
-        // Logged-in user: join immediately
         setActiveMeeting(event);
       } else {
-        // Guest: prompt for a display name first
         setPendingMeetingEvent(event);
         setGuestDisplayName("");
         setGuestNamePromptOpen(true);
       }
     } else {
-      // Not a Jitsi link: fall back to YouTube / video player (requires login)
       handleWatch(event);
     }
   };
 
-  // Called when guest submits their name
   const handleGuestJoin = () => {
     const name = guestDisplayName.trim();
     if (!name) {
@@ -232,7 +257,7 @@ export default function Events() {
       try {
         await navigator.share({ title: event.title, text: `Join us for: ${event.title}`, url: shareUrl });
       } catch (err) {
-        console.log('Error sharing:', err);
+        console.log("Error sharing:", err);
       }
     } else {
       try {
@@ -244,72 +269,19 @@ export default function Events() {
     }
   };
 
-  // Determine the display name to pass to Jitsi
   const getDisplayName = () => {
-    if (user?.full_name) return user.full_name.replace(/['"']/g, '');
+    if (user?.full_name) return user.full_name.replace(/['"']/g, "");
     return guestDisplayName.trim() || "Guest";
   };
 
   const isAdmin = (u) => u?.role === "admin" || u?.is_admin === true;
 
-  const [activeMeeting, setActiveMeeting] = useState(null);
-  const [jaasIframeSrc, setJaasIframeSrc]   = useState("");
-
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   // JITSI PRODUCTION CONFIGURATION
-  //
-  // Two deployment modes are supported — pick the one that matches your setup:
-  //
-  // MODE A — Self-hosted Jitsi (meet.yourchurch.org)
-  //   • Set JITSI_PRODUCTION_DOMAIN to your server's hostname.
-  //   • Enable JWT in your Jitsi config (jicofo.conf / jitsi-meet/config.js).
-  //   • Point JWT_TOKEN_ENDPOINT at a backend route that signs HS256 tokens
-  //     with your Prosody APP_SECRET.
-  //   • JWT payload shape:
-  //       { iss: APP_ID, sub: DOMAIN, aud: "jitsi", room: "<roomName>",
-  //         exp: now+3600,
-  //         context: { user: { name, email, moderator: true|false } } }
-  //
-  // MODE B — JaaS / 8x8.vc (cloud-hosted)
-  //   • Leave JITSI_PRODUCTION_DOMAIN as "8x8.vc".
-  //   • Sign up at https://jaas.8x8.vc → get your App ID + RS256 private key.
-  //   • Point JWT_TOKEN_ENDPOINT at a backend route that signs RS256 tokens
-  //     with your JaaS private key.
-  //   • JWT payload shape (JaaS):
-  //       { iss: "chat", sub: APP_ID, aud: "jitsi", room: "*", exp: now+3600,
-  //         context: { user: { name, email, moderator: true|false },
-  //                    features: { livestreaming: false, recording: false } } }
-  //
-  // BOTH MODES — step-by-step backend setup:
-  //   1.  npm install jsonwebtoken  (Node) or  pip install PyJWT  (Python)
-  //   2.  Create route  POST /api/jitsi-token
-  //       • Authenticate the caller via session/cookie
-  //       • Read isModerator from body, derive from user.role in your DB
-  //       • Sign & return  { token: "<jwt>" }
-  //   3.  Set JWT_TOKEN_ENDPOINT below.
   // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  const JITSI_PRODUCTION_DOMAIN = "8x8.vc";
+  const JWT_TOKEN_ENDPOINT = "/api/jaas/token";
 
-  /**
-   * Your Jitsi production domain.
-   * Examples:
-   *   Self-hosted  →  "meet.yourchurch.org"
-   *   JaaS         →  "8x8.vc"
-   *   Public demo  →  "meet.jit.si"  (no JWT support, moderator via password only)
-   */
-  const JITSI_PRODUCTION_DOMAIN = "8x8.vc"; // JaaS production domain
-
-  /**
-   * Backend endpoint that mints and returns a signed JWT for the calling user.
-   * Set to null to skip JWT auth (admin moderator falls back to room-password).
-   *
-   * Request  (POST, JSON):  { roomName: string, isModerator: boolean }
-   * Response (JSON):        { token: "<signed-jwt>" }
-   */
-  const JWT_TOKEN_ENDPOINT = "/api/jaas/token"; // Backend JWT endpoint (server.js)
-
-  // ── Resolve the Jitsi domain from the event video URL ────────────────────
-  // Extracts only the hostname so it can be passed to JitsiMeetExternalAPI.
-  // Falls back to JITSI_PRODUCTION_DOMAIN if the URL is malformed.
   const resolveJitsiDomain = (videoLink) => {
     try {
       return new URL(videoLink).hostname;
@@ -318,15 +290,11 @@ export default function Events() {
     }
   };
 
-  // ── Resolve the room name from the event video URL ────────────────────────
-  // • Self-hosted / meet.jit.si  →  last path segment  (/MyRoom → "MyRoom")
-  // • JaaS (8x8.vc)             →  full path without leading slash
-  //     (/v2/<appId>/MyRoom → "v2/<appId>/MyRoom")
   const resolveRoomName = (videoLink) => {
     try {
       const url = new URL(videoLink);
       if (url.hostname.includes("8x8.vc")) {
-        return url.pathname.replace(/^\//, "");   // keep full JaaS path
+        return url.pathname.replace(/^\//, "");
       }
       return url.pathname.split("/").filter(Boolean).pop() || "MUTSDA";
     } catch {
@@ -334,18 +302,10 @@ export default function Events() {
     }
   };
 
-  // ── Fetch a signed JaaS JWT from the backend ─────────────────────────────
-  // Returns null when:
-  //   • The user is not signed in (guests join without a token), OR
-  //   • The backend request fails (logs a warning; falls back gracefully).
-  //
-  // The backend (POST /api/jaas/token) derives the moderator flag from the
-  // user's DB role — the isModerator param here is only informational.
   const fetchJitsiToken = async (roomName, isModerator) => {
-    if (!JWT_TOKEN_ENDPOINT) return null;   // endpoint not configured
-    if (!user) return null;                  // guests join without a token
+    if (!JWT_TOKEN_ENDPOINT) return null;
+    if (!user) return null;
 
-    // Retrieve the auth token from localStorage (same pattern as your axios calls)
     const authToken =
       localStorage.getItem("token") || localStorage.getItem("auth_token");
 
@@ -354,8 +314,6 @@ export default function Events() {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
-          // Forward the Bearer token so the 'protect' middleware can verify
-          // the caller and derive their role from the database.
           ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
         },
         body: JSON.stringify({ roomName, isModerator }),
@@ -363,7 +321,6 @@ export default function Events() {
       if (!res.ok) throw new Error(`JWT endpoint returned HTTP ${res.status}`);
       const data = await res.json();
       if (!data.token) throw new Error("Response missing 'token' field");
-      // Use the server-confirmed moderator flag rather than the client hint
       return { token: data.token, moderator: data.moderator ?? isModerator };
     } catch (err) {
       console.warn("[JaaS] JWT fetch failed — joining without token:", err.message);
@@ -372,26 +329,19 @@ export default function Events() {
   };
 
   // ── Jitsi External API (meet.jit.si + self-hosted) ────────────────────────
-  // 8x8.vc (JaaS) does NOT support JitsiMeetExternalAPI from a third-party
-  // origin; it is handled separately via a plain <iframe> (see buildJaasIframeSrc).
   useEffect(() => {
     if (!activeMeeting) return;
 
     const videoLink = activeMeeting.video_link || "";
     const isJaas    = videoLink.includes("8x8.vc");
 
-    // JaaS is rendered via iframe only — this effect handles everything else.
     if (isJaas) return;
 
     const domain = resolveJitsiDomain(videoLink);
-    let   cancelled = false; // guard: React 18 StrictMode mounts effects twice
+    let cancelled = false;
 
     const init = async () => {
-      // ── Step 1: load external_api.js from the SAME domain as the meeting ──
-      //   This is critical for self-hosted servers. Loading meet.jit.si's
-      //   script against a different host will fail CORS / origin checks.
       const loadExternalApi = () => {
-        // Re-use an already-loaded copy if the domain matches.
         if (window.JitsiMeetExternalAPI) return Promise.resolve();
         return new Promise((resolve, reject) => {
           const existing = document.querySelector(
@@ -418,58 +368,42 @@ export default function Events() {
 
       if (cancelled || !jitsiContainerRef.current) return;
 
-      // ── Step 2: resolve room, display name, and moderator flag ────────────
       const roomName    = resolveRoomName(videoLink);
       const displayName = getDisplayName();
       const moderator   = isAdmin(user);
 
-      // ── Step 3: request a signed JaaS JWT from the backend ─────────────────
-      //   fetchJitsiToken returns { token, moderator } (server-confirmed role)
-      //   or null for guests / if the endpoint is unreachable.
       const tokenResult = await fetchJitsiToken(roomName, moderator);
       const jwt         = tokenResult?.token    ?? null;
       const isMod       = tokenResult?.moderator ?? moderator;
 
       if (cancelled || !jitsiContainerRef.current) return;
 
-      // ── Step 4: initialise JitsiMeetExternalAPI ───────────────────────────
       const options = {
         roomName,
         width:      "100%",
         height:     "100%",
         parentNode: jitsiContainerRef.current,
-
-        // Attach the JWT when available — JaaS reads context.user.moderator
-        // and grants the correct role without any further client-side logic.
         ...(jwt ? { jwt } : {}),
-
         configOverwrite: {
-          prejoinPageEnabled:     false,  // skip the name/device-check screen
-          startWithAudioMuted:    true,   // polite default: join muted
+          prejoinPageEnabled:     false,
+          startWithAudioMuted:    true,
           startWithVideoMuted:    false,
-          disableInviteFunctions: true,   // hide "Invite people" button
-
-          // No-JWT fallback: ensure admin joins before anyone else so that
-          // Jitsi's "first participant = moderator" heuristic fires correctly.
+          disableInviteFunctions: true,
           ...(isMod && !jwt
             ? { enableLobbyChat: false, autoKnockLobby: false }
             : {}),
         },
-
         interfaceConfigOverwrite: {
           TILE_VIEW_MAX_COLUMNS:  8,
           SHOW_JITSI_WATERMARK:   false,
           SHOW_BRAND_WATERMARK:   false,
           TOOLBAR_BUTTONS: [
-            // Expose only the controls MUTSDA participants need.
             "microphone", "camera", "closedcaptions", "desktop",
             "fullscreen", "fodeviceselection", "hangup", "chat",
             "raisehand", "tileview", "videobackgroundblur",
-            // Moderator-only controls — Jitsi hides these for non-mods automatically.
             "mute-everyone", "kick", "livestreaming", "recording",
           ],
         },
-
         userInfo: {
           displayName,
           email: user?.email ?? "",
@@ -478,23 +412,16 @@ export default function Events() {
 
       const api = new window.JitsiMeetExternalAPI(domain, options);
 
-      // ── Step 5: handle post-join moderator promotion ───────────────────────
       api.addEventListener("videoConferenceJoined", () => {
         if (!moderator) return;
-
         if (jwt) {
-          // JWT path: the server already confirmed moderator via the token claim.
           toast.success("You joined as Moderator.", { duration: 3000 });
         } else {
-          // Password fallback: lock the room so you become the effective owner.
-          // Note — any participant who knows this password can also set it and
-          // gain the same rights. For true security, configure a JWT backend.
           api.executeCommand("password", "MUTSDA_MOD_2024");
           toast.success("You joined as Moderator (room secured).", { duration: 3000 });
         }
       });
 
-      // ── Step 6: log server-confirmed role (useful for debugging) ──────────
       api.addEventListener("participantRoleChanged", ({ id, role }) => {
         const me = api.getParticipantsInfo()
           .find((p) => p.displayName === displayName);
@@ -507,7 +434,6 @@ export default function Events() {
         if (!cancelled) setActiveMeeting(null);
       });
 
-      // Stash API instance on the container DOM node for cleanup.
       jitsiContainerRef.current._jitsiApi = api;
     };
 
@@ -524,14 +450,6 @@ export default function Events() {
   }, [activeMeeting, user]);
 
   // ── Build JaaS (8x8.vc) iframe src ───────────────────────────────────────
-  // JaaS rooms are loaded via a plain iframe. Configuration is passed as URL
-  // hash fragments. A JWT (RS256, signed with your JaaS private key) is
-  // required to grant moderator rights; without one the user joins as attendee.
-  //
-  // To wire up JWT for JaaS:
-  //   1. Sign up at https://jaas.8x8.vc → Settings → Generate key pair.
-  //   2. Set JWT_TOKEN_ENDPOINT to a backend route that signs RS256 tokens.
-  //   3. Replace the fetchJaasToken stub below with a real async call.
   const buildJaasIframeSrc = async (event) => {
     if (!event?.video_link) return "";
 
@@ -539,7 +457,6 @@ export default function Events() {
     const displayName = encodeURIComponent(getDisplayName());
     const moderator   = isAdmin(user);
 
-    // Attempt to fetch a JWT for the JaaS room (RS256, signed server-side).
     const tokenResult = await fetchJitsiToken(roomName, moderator);
     const jwt = tokenResult?.token ?? null;
 
@@ -548,13 +465,12 @@ export default function Events() {
       "config.startWithAudioMuted=true",
       "config.startWithVideoMuted=false",
       `userInfo.displayName="${displayName}"`,
-      ...(jwt ? [`token=${jwt}`] : []),       // attach JWT when available
+      ...(jwt ? [`token=${jwt}`] : []),
     ].join("&");
 
     return `${event.video_link}#${params}`;
   };
 
-  // Build the JaaS src once when activeMeeting changes (async).
   useEffect(() => {
     if (!activeMeeting?.video_link?.includes("8x8.vc")) {
       setJaasIframeSrc("");
@@ -566,6 +482,7 @@ export default function Events() {
 
   return (
     <div className="min-h-screen bg-[#faf8f2]">
+
       {/* ── YouTube / Video player dialog ─────────────────────────────── */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl p-0 bg-black border-none overflow-hidden rounded-2xl">
@@ -656,8 +573,16 @@ export default function Events() {
       </AlertDialog>
 
       {/* ── Active Jitsi meeting modal ────────────────────────────────── */}
+      {/*
+        meetingModalRef is attached to DialogContent so requestFullscreen()
+        expands the entire modal — the user never leaves the page.
+        toggleFullscreen() replaces the old window.open() call entirely.
+      */}
       <Dialog open={!!activeMeeting} onOpenChange={() => setActiveMeeting(null)}>
-        <DialogContent className="w-[95vw] max-w-6xl h-[85vh] p-0 bg-[#1a2744] border-none overflow-hidden rounded-2xl flex flex-col">
+        <DialogContent
+          ref={meetingModalRef}
+          className="w-[95vw] max-w-6xl h-[85vh] p-0 bg-[#1a2744] border-none overflow-hidden rounded-2xl flex flex-col"
+        >
           <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#1a2744]">
             <div className="flex items-center gap-3">
               <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
@@ -668,22 +593,39 @@ export default function Events() {
                 </Badge>
               )}
             </div>
+
+            {/* In-app fullscreen toggle — does NOT open a new tab */}
             <Button
               variant="ghost"
               size="sm"
-              className="text-white/70 hover:text-[#c8a951]"
-              onClick={() => window.open(activeMeeting?.video_link, '_blank')}
+              className="text-white/70 hover:text-[#c8a951] gap-2"
+              onClick={toggleFullscreen}
+              title={isFullscreen ? "Exit fullscreen" : "Enter fullscreen"}
             >
-              Open Fullscreen
+              {isFullscreen ? (
+                // Compress / exit-fullscreen icon
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M8 3v3a2 2 0 0 1-2 2H3"/>
+                  <path d="M21 8h-3a2 2 0 0 1-2-2V3"/>
+                  <path d="M3 16h3a2 2 0 0 1 2 2v3"/>
+                  <path d="M16 21v-3a2 2 0 0 1 2-2h3"/>
+                </svg>
+              ) : (
+                // Expand / enter-fullscreen icon
+                <svg xmlns="http://www.w3.org/2000/svg" className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 8V5a2 2 0 0 1 2-2h3"/>
+                  <path d="M16 3h3a2 2 0 0 1 2 2v3"/>
+                  <path d="M21 16v3a2 2 0 0 1-2 2h-3"/>
+                  <path d="M8 21H5a2 2 0 0 1-2-2v-3"/>
+                </svg>
+              )}
+              {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
             </Button>
           </div>
 
           <div className="flex-1 bg-black relative" ref={jitsiContainerRef}>
             {/*
-              8x8.vc (JaaS): rendered as a plain iframe.
-              The src is built asynchronously (JWT fetch included) and stored in jaasIframeSrc.
-              A loading spinner is shown until the src is ready.
-
+              8x8.vc (JaaS): rendered as a plain iframe inside the modal.
               meet.jit.si / self-hosted: JitsiMeetExternalAPI mounts directly
               into jitsiContainerRef — no iframe element needed here.
             */}
@@ -818,7 +760,7 @@ export default function Events() {
                         )}
                         {event.video_link && (
                           <div className="flex gap-2">
-                            {(event.video_link.includes('jit.si') || event.video_link.includes('8x8.vc')) ? (
+                            {(event.video_link.includes("jit.si") || event.video_link.includes("8x8.vc")) ? (
                               <Button
                                 size="sm"
                                 onClick={() => handleJoinMeeting(event)}
