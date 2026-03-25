@@ -1644,17 +1644,19 @@ app.set('io', io); // Make io accessible to the rest of the app if needed
 // -----------------------------------------------------------------------------
 // 10. SERVE FRONTEND & START SERVER
 // -----------------------------------------------------------------------------
-const __dirname = path.resolve();
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 // 1. Serve static files from the 'dist' folder (Vite build output)
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // 2. Serve uploads if you still use local storage (though you use Cloudinary)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
-
+app.get('/sw.js', (req, res) => {
+  res.sendFile(path.resolve(__dirname, 'sw.js'));
+});
 // 3. SPA Routing: MUST be the very last route. 
-// This handles the "MIME type" error by ensuring 404s on assets 
-// don't accidentally return index.html while the browser expects JS.
+
 app.get('*', async (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');
   const eventId = req.query.event;
