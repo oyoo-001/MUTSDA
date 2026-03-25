@@ -14,19 +14,15 @@ import { toast } from "sonner";
 const MessageMedia = ({ message }) => {
   if (!message.media_url) return null;
 
-  // The server provides a relative path like '/uploads/xyz'. We need to make it absolute.
   const getAbsoluteUrl = (url) => {
     if (!url) return '';
-    // If it's already a full URL (http, https) or a local blob, use it as is.
     if (url.startsWith('http') || url.startsWith('blob:')) {
       return url;
     }
     try {
-      // Create a URL object from SOCKET_URL to easily get the origin
       const serverUrl = new URL(SOCKET_URL);
       return `${serverUrl.origin}${url}`;
     } catch (e) {
-      // Fallback for invalid SOCKET_URL or other errors
       console.error("Could not create absolute URL for media", e);
       return url;
     }
@@ -96,11 +92,28 @@ const MessageMedia = ({ message }) => {
   return null;
 };
 
+// Role badge color mapping
+const getRoleBadgeClass = (role) => {
+  const roleMap = {
+    admin: "bg-red-600 text-white",
+    pastor: "bg-purple-600 text-white",
+    elder: "bg-amber-600 text-white",
+    deacon: "bg-blue-600 text-white",
+    deaconese: "bg-pink-600 text-white",
+    members: "bg-green-600 text-white",
+    default: "bg-gray-600 text-white"
+  };
+  
+  const normalizedRole = role?.toLowerCase().trim() || 'default';
+  return roleMap[normalizedRole] || roleMap.default;
+};
+
 export default function Chat() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
   const [messagesData, setMessagesData] = useState([]);
   const [onlineUsers, setOnlineUsers] = useState([]);
+  const [allMembers, setAllMembers] = useState([]);
   const [myGroups, setMyGroups] = useState([]);
   const [unreadCounts, setUnreadCounts] = useState({});
   const [activeChannel, setActiveChannel] = useState({ id: 'general', name: 'General Fellowship' });
@@ -149,6 +162,14 @@ export default function Chat() {
     }, []);
   }, [messages]);
 
+  // Create sorted members list: online first, then offline
+  const sortedMembers = useMemo(() => {
+    const onlineEmails = new Set(onlineUsers.map(u => u.email));
+    const online = allMembers.filter(m => onlineEmails.has(m.email));
+    const offline = allMembers.filter(m => !onlineEmails.has(m.email));
+    return [...online, ...offline];
+  }, [allMembers, onlineUsers]);
+
   // 1. Auth & Initial Load
   useEffect(() => {
     const load = async () => {
@@ -159,6 +180,38 @@ export default function Chat() {
           setUser(userData);
           // Fetch user's groups
           apiClient.entities.ChatGroup.getMyGroups().then(setMyGroups).catch(console.error);
+          
+          // Fetch all members/users - try multiple approaches
+          try {
+            let membersData = [];
+            
+            // Try approach 1: getAll method
+            if (apiClient.entities.User?.getAll) {
+              console.log("Fetching members with User.getAll()");
+              const result = await apiClient.entities.User.getAll();
+              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
+            }
+            
+            // Try approach 2: filter/list method
+            if (membersData.length === 0 && apiClient.entities.User?.filter) {
+              console.log("Fetching members with User.filter()");
+              const result = await apiClient.entities.User.filter({});
+              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
+            }
+            
+            // Try approach 3: direct API call
+            if (membersData.length === 0) {
+              console.log("Fetching members with direct API call");
+              const result = await apiClient.get('/api/users') || await apiClient.get('/users');
+              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
+            }
+            
+            console.log("Members loaded:", membersData.length, membersData);
+            setAllMembers(Array.isArray(membersData) ? membersData : []);
+          } catch (err) {
+            console.error("Failed to load members:", err);
+            setAllMembers([]);
+          }
         }
       } catch (e) {
         console.error("Auth load failed", e);
@@ -179,7 +232,6 @@ export default function Chat() {
     });
 
     const handleOnlineUsersUpdate = (users) => {
-      // The user object is not available here, so we filter in the render logic
       setOnlineUsers(users);
     };
     socketRef.current.on("online_users_update", handleOnlineUsersUpdate);
@@ -200,7 +252,6 @@ export default function Chat() {
     apiClient.entities.ChatMessage.filter({ channel: channelId })
       .then((response) => {
         const data = Array.isArray(response) ? response : (response?.data || response?.items || []);
-        // Backend returns newest first (DESC), reverse to show oldest first (ASC) for chat log
         setMessagesData([...data].reverse());
       })
       .catch(err => console.error("Failed to load chat history", err));
@@ -215,14 +266,13 @@ export default function Chat() {
     
     socket.emit('i_am_online', user);
     socket.emit("join", channelId);
-    setMessagesData([]); // Clear messages on channel switch
+    setMessagesData([]);
     fetchHistory(channelId);
 
     const handleNewMessage = (msg) => {
       if (msg.channel === channelId) {
         setMessagesData(prev => [...prev, msg]);
         
-        // Sound and Notification for incoming messages (not from me)
         if (msg.sender_email !== user.email) {
           const audio = new Audio("https://assets.mixkit.co/active_storage/sfx/2346/2346-preview.mp3");
           audio.volume = 0.5;
@@ -320,7 +370,6 @@ export default function Chat() {
     const element = document.getElementById(`message-${messageId}`);
     if (element) {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // Highlight the message temporarily
         element.classList.add('bg-amber-100/50', 'rounded-lg', 'transition-all', 'duration-300');
         setTimeout(() => {
             element.classList.remove('bg-amber-100/50', 'rounded-lg');
@@ -334,7 +383,7 @@ export default function Chat() {
     const file = e.target.files[0];
     if (!file) return;
 
-    if (file.size > 25 * 1024 * 1024) { // 25MB limit
+    if (file.size > 25 * 1024 * 1024) {
       toast.error("File is too large (max 25MB).");
       return;
     }
@@ -472,7 +521,6 @@ export default function Chat() {
       await apiClient.entities.ChatGroup.leaveGroup(group.id);
       setMyGroups(prev => prev.filter(g => g.id !== group.id));
       
-      // If user was in the group they just left, switch to general
       if (activeChannel.id === group.id) {
         handleChannelSwitch({ id: 'general', name: 'General Fellowship' });
       }
@@ -486,7 +534,8 @@ export default function Chat() {
   const getInitials = (n) => n?.split(" ").map(w => w[0]).join("").toUpperCase().slice(0, 2) || "?";
   const avatarColors = ["bg-[#1a2744]", "bg-[#2d5f8a]", "bg-[#3a7d5c]", "bg-[#8b5e3c]", "bg-purple-600"];
   const getColor = (email) => avatarColors[email?.charCodeAt(0) % avatarColors.length] || avatarColors[0];
-  const displayOnlineUsers = useMemo(() => onlineUsers.filter(u => u.email !== user?.email), [onlineUsers, user]);
+  const onlineEmails = useMemo(() => new Set(onlineUsers.map(u => u.email)), [onlineUsers]);
+  const isUserOnline = (email) => onlineEmails.has(email);
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center">Loading Community...</div>;
 
@@ -587,7 +636,7 @@ export default function Chat() {
           <h1 className="text-xl font-bold text-[#1a2744]">{activeChannel.name}</h1>
           <div className="flex items-center gap-2 mt-0.5">
              <span className="flex h-2 w-2 rounded-full bg-green-500"></span>
-             <span className="text-xs text-gray-500 font-medium">{displayOnlineUsers.length + (user ? 1 : 0)} Online</span>
+             <span className="text-xs text-gray-500 font-medium">{onlineUsers.length} Online</span>
           </div>
         </div>
         <Button 
@@ -603,13 +652,19 @@ export default function Chat() {
       <div className="flex-1 flex overflow-hidden">
         {/* Main Chat Area */}
         <div className="flex-1 flex flex-col overflow-hidden">
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-[#fafafa]">
+          {/* WhatsApp-style background with pattern */}
+          <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gradient-to-b from-[#efeae2] to-[#e0dbd3]" style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cg fill-opacity='0.03'%3E%3Cpolygon points='30 55 0 41.25 0 9.75 30 0 60 9.75 60 41.25'/%3E%3Cpolygon points='30 55 0 41.25 0 9.75 30 0 60 9.75 60 41.25' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E")`,
+          }}>
             {messagesWithSeparators.map((item, idx) => {
               if (item.isDateSeparator) {
                 return (
-                  <div key={item.id} className="relative text-center my-6">
-                    <hr className="absolute top-1/2 left-0 w-full border-gray-200" />
-                    <span className="relative bg-[#fafafa] px-3 text-xs font-semibold text-gray-500">{item.label}</span>
+                  <div key={item.id} className="relative text-center my-4">
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-px bg-gray-300/50"></div>
+                      <span className="bg-gray-200/70 px-3 py-1 text-xs font-semibold text-gray-600 rounded-full">{item.label}</span>
+                      <div className="flex-1 h-px bg-gray-300/50"></div>
+                    </div>
                   </div>
                 );
               }
@@ -618,8 +673,8 @@ export default function Chat() {
               const canDelete = isMe || user?.role === 'admin';
 
               return (
-                <div id={`message-${msg.id}`} key={msg.id || idx} className={cn("flex items-end gap-3 group", isMe ? "flex-row-reverse" : "flex-row")}>
-                  <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm overflow-hidden", !msg.sender_profile_photo_url && getColor(msg.sender_email))}>
+                <div id={`message-${msg.id}`} key={msg.id || idx} className={cn("flex items-end gap-2 group", isMe ? "flex-row-reverse justify-start" : "flex-row justify-start")}>
+                  <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 shadow-sm overflow-hidden", !msg.sender_profile_photo_url && getColor(msg.sender_email))}>
                     {msg.sender_profile_photo_url ? (
                       <img 
                         src={msg.sender_profile_photo_url} 
@@ -631,39 +686,40 @@ export default function Chat() {
                       getInitials(msg.sender_name)
                     )}
                   </div>
-                  <div className={cn("flex flex-col max-w-[75%]", isMe ? "items-end" : "items-start")}>
-                    <span className="text-[11px] font-semibold text-gray-500 mb-1 px-1">{msg.sender_name}</span>
-                    <div className={cn("relative p-1 rounded-2xl text-[13px] shadow-sm leading-relaxed", 
-                      isMe ? "bg-[#1a2744] text-white rounded-tr-none" : "bg-white text-gray-800 border rounded-tl-none")}>
+                  <div className={cn("flex flex-col max-w-xs lg:max-w-md", isMe ? "items-end" : "items-start")}>
+                    <span className="text-[11px] font-semibold text-gray-600 mb-1 px-2">{msg.sender_name}</span>
+                    <div className={cn("relative rounded-2xl text-sm shadow-md leading-relaxed", 
+                      isMe ? "bg-[#0084ff] text-white rounded-br-none" : "bg-white text-gray-800 rounded-bl-none border border-gray-200")}>
                       
+                      {/* Reply Message - Slide In */}
                       {msg.replyTo && (
                         <div 
-                          className={cn("mb-1 rounded-md p-2 text-xs cursor-pointer hover:opacity-90 transition-opacity border-l-4", isMe ? "bg-black/20 border-white/50 text-white/90" : "bg-gray-100 border-[#c8a951] text-gray-700")}
+                          className={cn("mb-2 rounded-l-lg p-2 text-xs cursor-pointer hover:opacity-90 transition-all border-l-4 animate-in slide-in-from-right-full duration-300", isMe ? "bg-blue-500/30 border-white/60 text-white/95" : "bg-gray-100 border-[#c8a951] text-gray-700")}
                           onClick={() => handleScrollToMessage(msg.replyTo.id)}
                         >
                           <p className="font-bold text-[10px] opacity-75 mb-0.5">{msg.replyTo.sender_name}</p>
-                          <p className="line-clamp-1">{msg.replyTo.message || msg.replyTo.media_filename || "Attachment"}</p>
+                          <p className="line-clamp-2">{msg.replyTo.message || msg.replyTo.media_filename || "Attachment"}</p>
                         </div>
                       )}
 
                       {msg.media_url && <MessageMedia message={msg} />}
                       
-                      {msg.message && <p className="break-words px-3 py-1.5">{msg.message}</p>}
+                      {msg.message && <p className="break-words px-3 py-2">{msg.message}</p>}
                     </div>
-                    <span className="text-[10px] text-gray-400 mt-1.5">{msg.created_date ? format(new Date(msg.created_date), "h:mm a") : ""}</span>
+                    <span className="text-[10px] text-gray-600 mt-1 px-2">{msg.created_date ? format(new Date(msg.created_date), "h:mm a") : ""}</span>
                   </div>
                   <div className="self-center shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-blue-500" onClick={() => setReplyingTo(msg)}>
-                          <Reply className="w-3.5 h-3.5" />
+                      <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-500 hover:text-blue-500" onClick={() => setReplyingTo(msg)}>
+                          <Reply className="w-3 h-3" />
                       </Button>
                       {isMe && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-green-500" onClick={() => handleEditMessage(msg)}>
-                            <Pencil className="w-3.5 h-3.5" />
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-500 hover:text-green-500" onClick={() => handleEditMessage(msg)}>
+                            <Pencil className="w-3 h-3" />
                         </Button>
                       )}
                       {canDelete && (
-                        <Button variant="ghost" size="icon" className="h-7 w-7 text-gray-400 hover:text-red-500" onClick={() => handleDeleteMessage(msg)}>
-                            <Trash2 className="w-3.5 h-3.5" />
+                        <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-500 hover:text-red-500" onClick={() => handleDeleteMessage(msg)}>
+                            <Trash2 className="w-3 h-3" />
                         </Button>
                       )}
                   </div>
@@ -671,8 +727,15 @@ export default function Chat() {
               );
             })}
             {typingUsers.size > 0 && (
-              <div className="text-[11px] text-gray-400 italic animate-pulse px-12">
-                {Array.from(typingUsers).join(", ")} is typing...
+              <div className="text-[11px] text-gray-600 italic px-4 py-2">
+                <span className="inline-flex items-center gap-1">
+                  {Array.from(typingUsers).join(", ")} is typing
+                  <span className="flex gap-0.5 ml-1">
+                    <span className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                    <span className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '100ms' }}></span>
+                    <span className="w-1.5 h-1.5 bg-gray-600 rounded-full animate-bounce" style={{ animationDelay: '200ms' }}></span>
+                  </span>
+                </span>
               </div>
             )}
             <div ref={bottomRef} />
@@ -681,24 +744,24 @@ export default function Chat() {
           {/* Input Box */}
           <footer className="p-4 bg-white border-t relative">
             {replyingTo && (
-              <div className="p-2 mb-2 bg-gray-100 rounded-lg text-xs flex justify-between items-center animate-in fade-in duration-200">
+              <div className="p-3 mb-2 bg-blue-50 border-l-4 border-blue-500 rounded-r-lg text-sm flex justify-between items-center animate-in slide-in-from-bottom duration-300">
                 <div>
-                  <p className="font-bold text-gray-500">Replying to {replyingTo.sender_name}</p>
-                  <p className="text-gray-600 line-clamp-1">{replyingTo.message || replyingTo.media_filename || "Attachment"}</p>
+                  <p className="font-bold text-blue-700">Replying to {replyingTo.sender_name}</p>
+                  <p className="text-blue-600 line-clamp-1 text-xs">{replyingTo.message || replyingTo.media_filename || "Attachment"}</p>
                 </div>
                 <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setReplyingTo(null)}>
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
             )}
             {editingMessage && (
-              <div className="p-2 mb-2 bg-green-50 border border-green-100 rounded-lg text-xs flex justify-between items-center animate-in fade-in duration-200">
+              <div className="p-3 mb-2 bg-green-50 border-l-4 border-green-500 rounded-r-lg text-sm flex justify-between items-center animate-in slide-in-from-bottom duration-300">
                 <div className="flex items-center gap-2">
-                  <Pencil className="w-3.5 h-3.5 text-green-600" />
+                  <Pencil className="w-4 h-4 text-green-600" />
                   <span className="font-bold text-green-700">Editing message</span>
                 </div>
                 <Button variant="ghost" size="icon" className="h-6 w-6 text-green-700 hover:bg-green-100" onClick={handleCancelEdit}>
-                  <X className="w-3.5 h-3.5" />
+                  <X className="w-4 h-4" />
                 </Button>
               </div>
             )}
@@ -707,7 +770,7 @@ export default function Chat() {
                 <EmojiPicker onEmojiClick={handleEmojiClick} width={300} height={400} />
               </div>
             )}
-            <form onSubmit={sendMessage} className="flex gap-2 max-w-5xl mx-auto items-end">
+            <form onSubmit={sendMessage} className="flex gap-2 items-end">
               <div className="flex gap-1 pb-1">
                 <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-[#1a2744]" onClick={() => fileInputRef.current?.click()}>
                   <Paperclip className="w-5 h-5" />
@@ -727,10 +790,10 @@ export default function Chat() {
                 value={input}
                 onChange={handleInputChange}
                 placeholder={editingMessage ? "Edit your message..." : `Message ${activeChannel.name}...`}
-                className="bg-gray-50 border-none ring-offset-0 focus-visible:ring-1 focus-visible:ring-[#c8a951]"
+                className="bg-gray-100 border-none rounded-full ring-offset-0 focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0"
                 disabled={!user || sending}
               />
-              <Button type="submit" className={cn("text-[#1a2744]", editingMessage ? "bg-green-500 hover:bg-green-600 text-white" : "bg-[#c8a951] hover:bg-[#b89941]")} disabled={(!input.trim() && !sending) || sending}>
+              <Button type="submit" className={cn("rounded-full h-9 w-9 p-0 flex items-center justify-center", editingMessage ? "bg-green-500 hover:bg-green-600 text-white" : "bg-[#0084ff] hover:bg-blue-600 text-white")} disabled={(!input.trim() && !sending) || sending}>
                 <Send className="w-4 h-4" />
               </Button>
             </form>
@@ -738,19 +801,43 @@ export default function Chat() {
         </div>
         {/* Desktop Sidebar */}
         <aside className="w-72 border-l bg-white hidden md:block overflow-y-auto p-6">
-          <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} onViewPhoto={setViewingProfilePhoto} />
+          <SidebarContent 
+            user={user} 
+            allMembers={sortedMembers}
+            myGroups={myGroups} 
+            activeChannel={activeChannel} 
+            onChannelSwitch={handleChannelSwitch} 
+            onLeaveGroup={handleLeaveGroup} 
+            unreadCounts={unreadCounts} 
+            getInitials={getInitials} 
+            getColor={getColor} 
+            onViewPhoto={setViewingProfilePhoto}
+            isUserOnline={isUserOnline}
+          />
         </aside>
 
         {/* Mobile Sidebar (Sheet/Drawer Effect) */}
         {showMobileUsers && (
           <div className="fixed inset-0 z-[100] flex justify-end md:hidden">
             <div className="absolute inset-0 bg-black/40" onClick={() => setShowMobileUsers(false)} />
-            <aside className="absolute right-0 w-80 max-w-sm h-full bg-white shadow-xl p-6 flex flex-col animate-in slide-in-from-right">
+            <aside className="absolute right-0 w-80 max-w-sm h-full bg-white shadow-xl p-6 flex flex-col animate-in slide-in-from-right overflow-y-auto">
               <div className="flex items-center justify-between mb-8">
-                <h3 className="font-bold text-lg">Active Members</h3>
+                <h3 className="font-bold text-lg">Members & Groups</h3>
                 <Button variant="ghost" size="icon" onClick={() => setShowMobileUsers(false)}><X /></Button>
               </div>
-              <SidebarContent user={user} onlineUsers={displayOnlineUsers} myGroups={myGroups} activeChannel={activeChannel} onChannelSwitch={handleChannelSwitch} onLeaveGroup={handleLeaveGroup} unreadCounts={unreadCounts} getInitials={getInitials} getColor={getColor} onViewPhoto={setViewingProfilePhoto} />
+              <SidebarContent 
+                user={user} 
+                allMembers={sortedMembers}
+                myGroups={myGroups} 
+                activeChannel={activeChannel} 
+                onChannelSwitch={handleChannelSwitch} 
+                onLeaveGroup={handleLeaveGroup} 
+                unreadCounts={unreadCounts} 
+                getInitials={getInitials} 
+                getColor={getColor} 
+                onViewPhoto={setViewingProfilePhoto}
+                isUserOnline={isUserOnline}
+              />
             </aside>
           </div>
         )}
@@ -759,8 +846,8 @@ export default function Chat() {
   );
 }
 
-// Sub-component for the user list to avoid duplication
-function SidebarContent({ user, onlineUsers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto }) {
+// Sub-component for the sidebar to avoid duplication
+function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto, isUserOnline }) {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -806,35 +893,84 @@ function SidebarContent({ user, onlineUsers, myGroups, activeChannel, onChannelS
 
       <div className="border-t pt-6 space-y-4">
         <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">You</h4>
-        {user && <UserItem name={user.full_name} email={user.email} photoUrl={user.profile_photo_url} isMe getInitials={getInitials} getColor={getColor} onViewPhoto={onViewPhoto} />}
+        {user && (
+          <div className="flex items-center gap-3">
+            <div className="relative">
+              <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold overflow-hidden shrink-0", !user.profile_photo_url && getColor(user.email))}>
+                {user.profile_photo_url ? (
+                  <img 
+                    src={user.profile_photo_url} 
+                    alt={user.full_name} 
+                    className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                    onClick={() => onViewPhoto(user.profile_photo_url)}
+                  />
+                ) : (
+                  getInitials(user.full_name)
+                )}
+              </div>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 flex-wrap">
+                <span className="text-xs font-medium text-gray-700 truncate">{user.full_name} (You)</span>
+                {user.role && (
+                  <Badge className={cn("text-[10px] px-1.5 py-0 h-5 shrink-0", getRoleBadgeClass(user.role))}>
+                    {user.role}
+                  </Badge>
+                )}
+              </div>
+            </div>
+          </div>
+        )}
       </div>
-      <div className="space-y-4">
-        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Online — {onlineUsers.length}</h4>
-        {onlineUsers.map((u, i) => (
-          <UserItem key={i} name={u.name} email={u.email} photoUrl={u.profile_photo_url} getInitials={getInitials} getColor={getColor} onViewPhoto={onViewPhoto} />
-        ))}
-      </div>
-    </div>
-  );
-}
 
-function UserItem({ name, email, photoUrl, isMe, getInitials, getColor, onViewPhoto }) {
-  return (
-    <div className="flex items-center gap-3">
-      <div className="relative">
-        <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold overflow-hidden", !photoUrl && getColor(email))}>
-          {photoUrl ? (
-            <img 
-              src={photoUrl} 
-              alt={name} 
-              className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
-              onClick={() => onViewPhoto && onViewPhoto(photoUrl)}
-            />
-          ) : getInitials(name)}
-        </div>
-        <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-white"></span>
+      <div className="space-y-4">
+        <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Members — {allMembers.length}</h4>
+        {allMembers.length === 0 ? (
+          <div className="text-xs text-gray-500 italic py-2">No members loaded yet</div>
+        ) : (
+          <div className="space-y-2">
+            {allMembers.map((member, idx) => {
+              // Skip current user (they're in "You" section)
+              if (member.email === user?.email) return null;
+              const online = isUserOnline(member.email);
+              return (
+                <div key={member.email || idx} className={cn("flex items-center gap-3 px-2 py-2 rounded-lg transition-colors", online ? "bg-green-50" : "hover:bg-gray-50")}>
+                  <div className="relative">
+                    <div className={cn("w-8 h-8 rounded-full flex items-center justify-center text-white text-[10px] font-bold overflow-hidden shrink-0", !member.profile_photo_url && getColor(member.email))}>
+                      {member.profile_photo_url ? (
+                        <img 
+                          src={member.profile_photo_url} 
+                          alt={member.full_name} 
+                          className="w-full h-full object-cover cursor-pointer hover:opacity-90 transition-opacity" 
+                          onClick={() => onViewPhoto(member.profile_photo_url)}
+                        />
+                      ) : (
+                        getInitials(member.full_name)
+                      )}
+                    </div>
+                    {online && (
+                      <span className="absolute -bottom-0.5 -right-0.5 block h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-white"></span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-medium text-gray-700 truncate">{member.full_name}</span>
+                      {member.role && (
+                        <Badge className={cn("text-[10px] px-1.5 py-0 h-5 shrink-0", getRoleBadgeClass(member.role))}>
+                          {member.role}
+                        </Badge>
+                      )}
+                    </div>
+                    {online && (
+                      <span className="text-[10px] text-green-600 font-semibold">Online</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
-      <span className="text-sm font-medium text-gray-700 truncate">{name} {isMe && "(You)"}</span>
     </div>
   );
 }

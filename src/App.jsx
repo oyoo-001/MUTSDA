@@ -11,6 +11,9 @@ import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { Church } from 'lucide-react';
 import Live from './pages/Live';
 import { GoogleOAuthProvider } from '@react-oauth/google';
+import io from 'socket.io-client';
+import { SOCKET_URL, apiClient } from "@/api/base44Client";
+import React, { useState, useEffect, useRef } from "react";
 
 const { Pages, Layout, mainPage } = pagesConfig;
 const mainPageKey = mainPage ?? Object.keys(Pages)[0];
@@ -37,8 +40,34 @@ const SplashScreen = () => (
 );
 
 const AuthenticatedApp = () => {
-  const { isLoading } = useAuth();
+ 
+  const { isLoading, user } = useAuth();// Assuming useAuth provides the logged-in user
+  const socketRef = useRef(null);
+  useEffect(() => {
+    // Initialize socket at the App level
+    socketRef.current = io(SOCKET_URL, {
+      extraHeaders: { "ngrok-skip-browser-warning": "true" }
+    });
 
+    return () => {
+      if (socketRef.current) socketRef.current.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    // Site-wide Activity: Mark user online if they are authenticated
+    if (user && socketRef.current) {
+      socketRef.current.emit('i_am_online', user);
+      
+      // Optional: Periodic heartbeat to keep session fresh
+      const heartbeat = setInterval(() => {
+        socketRef.current.emit('i_am_online', user);
+      }, 30000); // every 30 seconds
+
+      return () => clearInterval(heartbeat);
+    }
+  }, [user]);
+  
   // Show a global loading spinner while the initial authentication check is running.
   if (isLoading) {
     return <SplashScreen />;
