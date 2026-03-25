@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Send, LogIn, Users, X, Lock, Hash, MessageSquare, LogOut, Paperclip, Smile, Image as ImageIcon, FileVideo, Trash2, FileText, Music, Download, Reply, Pencil } from "lucide-react";
+import { Send, LogIn, Users, X, Lock, Hash, MessageSquare, LogOut, Paperclip, Smile, Image as ImageIcon, FileVideo, Trash2, FileText, Music, Download, Reply, Pencil, Bot, Sparkles, RefreshCw, ChevronDown } from "lucide-react";
 import EmojiPicker from 'emoji-picker-react';
 import io from 'socket.io-client';
 import { format, isToday, isYesterday, isSameDay } from 'date-fns';
@@ -108,6 +108,112 @@ const getRoleBadgeClass = (role) => {
   return roleMap[normalizedRole] || roleMap.default;
 };
 
+// ── AI response formatter ──────────────────────────────────────────────────
+// Converts markdown-style syntax into colored React elements (no raw * or #)
+const formatAiText = (text) => {
+  if (!text) return null;
+
+  const lines = text.split('\n');
+
+  return lines.map((line, lineIdx) => {
+    // H1: # Heading
+    if (/^# (.+)/.test(line)) {
+      const content = line.replace(/^# /, '');
+      return (
+        <p key={lineIdx} className="font-bold text-[#1a2744] text-base mt-3 mb-1">
+          {parseInline(content)}
+        </p>
+      );
+    }
+    // H2: ## Heading
+    if (/^## (.+)/.test(line)) {
+      const content = line.replace(/^## /, '');
+      return (
+        <p key={lineIdx} className="font-bold text-[#2d5f8a] text-sm mt-2 mb-0.5">
+          {parseInline(content)}
+        </p>
+      );
+    }
+    // H3: ### Heading
+    if (/^### (.+)/.test(line)) {
+      const content = line.replace(/^### /, '');
+      return (
+        <p key={lineIdx} className="font-semibold text-[#c8a951] text-sm mt-1.5 mb-0.5">
+          {parseInline(content)}
+        </p>
+      );
+    }
+    // Blockquote: > highlighted text
+    if (/^> (.+)/.test(line)) {
+      const content = line.replace(/^> /, '');
+      return (
+        <p key={lineIdx} className="flex gap-2 my-1 bg-amber-50 border-l-4 border-[#c8a951] rounded-r-lg px-3 py-1.5">
+          <span className="text-[#c8a951] font-bold shrink-0">❝</span>
+          <span className="text-[#1a2744] italic text-sm">{parseInline(content)}</span>
+        </p>
+      );
+    }
+    // Bullet: * item or - item
+    if (/^[\*\-] (.+)/.test(line)) {
+      const content = line.replace(/^[\*\-] /, '');
+      return (
+        <p key={lineIdx} className="flex gap-2 my-0.5">
+          <span className="text-[#c8a951] font-bold mt-0.5 shrink-0">•</span>
+          <span>{parseInline(content)}</span>
+        </p>
+      );
+    }
+    // Empty line → spacer
+    if (line.trim() === '') {
+      return <span key={lineIdx} className="block h-1.5" />;
+    }
+    // Normal paragraph line
+    return (
+      <p key={lineIdx} className="my-0.5 leading-relaxed">
+        {parseInline(line)}
+      </p>
+    );
+  });
+};
+
+// Parse inline bold (**text**) and italic (*text*) within a line
+const parseInline = (text) => {
+  const parts = [];
+  // Combined regex: **bold** | *italic*
+  const regex = /\*\*(.+?)\*\*|\*(.+?)\*/g;
+  let lastIndex = 0;
+  let match;
+
+  while ((match = regex.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      parts.push(text.slice(lastIndex, match.index));
+    }
+    if (match[1] !== undefined) {
+      // Bold
+      parts.push(
+        <strong key={match.index} className="font-bold text-[#1a2744]">
+          {match[1]}
+        </strong>
+      );
+    } else if (match[2] !== undefined) {
+      // Italic
+      parts.push(
+        <em key={match.index} className="italic text-[#2d5f8a]">
+          {match[2]}
+        </em>
+      );
+    }
+    lastIndex = regex.lastIndex;
+  }
+
+  if (lastIndex < text.length) {
+    parts.push(text.slice(lastIndex));
+  }
+
+  return parts.length > 0 ? parts : text;
+};
+// ────────────────────────────────────────────────────────────────────────────
+
 export default function Chat() {
   const [user, setUser] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
@@ -128,8 +234,17 @@ export default function Chat() {
   const [replyingTo, setReplyingTo] = useState(null);
   const [editingMessage, setEditingMessage] = useState(null);
   const [viewingProfilePhoto, setViewingProfilePhoto] = useState(null);
+
+  // ── AI Chat state ──────────────────────────────────────────────────────────
+  const [showAiChat, setShowAiChat] = useState(false);
+  const [aiMessages, setAiMessages] = useState([]);
+  const [aiInput, setAiInput] = useState("");
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiHistoryLoaded, setAiHistoryLoaded] = useState(false);
+  const aiBottomRef = useRef(null);
+  const aiInputRef = useRef(null);
+  // ────────────────────────────────────────────────────────────────────────────
   const fileInputRef = useRef(null);
-  const textareaRef = useRef(null);
   
   const typingTimeoutRef = useRef(null);
   const isTypingRef = useRef(false);
@@ -350,13 +465,6 @@ export default function Chat() {
     const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
     const socket = socketRef.current;
     setInput(e.target.value);
-
-    // Auto-resize textarea
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-      textareaRef.current.style.height = Math.min(textareaRef.current.scrollHeight, 160) + 'px';
-    }
-
     if (!user) return;
     if (!isTypingRef.current) {
       isTypingRef.current = true;
@@ -492,9 +600,6 @@ export default function Chat() {
 
     socket.emit("sendMessage", payload);
     setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
     setReplyingTo(null);
     setShowEmojiPicker(false);
     setSending(false);
@@ -517,9 +622,6 @@ export default function Chat() {
   const handleCancelEdit = () => {
     setEditingMessage(null);
     setInput("");
-    if (textareaRef.current) {
-      textareaRef.current.style.height = 'auto';
-    }
   };
 
   const handleChannelSwitch = (channel) => {
@@ -550,6 +652,67 @@ export default function Chat() {
   const getColor = (email) => avatarColors[email?.charCodeAt(0) % avatarColors.length] || avatarColors[0];
   const onlineEmails = useMemo(() => new Set(onlineUsers.map(u => u.email)), [onlineUsers]);
   const isUserOnline = (email) => onlineEmails.has(email);
+
+  // ── AI Chat helpers ────────────────────────────────────────────────────────
+  // Uses apiClient.aiChat which piggybacks the existing axios instance —
+  // correct base URL + auth token are handled automatically.
+
+  const loadAiHistory = async () => {
+    if (!user || aiHistoryLoaded) return;
+    try {
+      const data = await apiClient.aiChat.getHistory();
+      setAiMessages(data.map(m => ({ role: m.role, content: m.content, id: m.id })));
+    } catch (e) {
+      console.error('Failed to load AI history', e);
+    } finally {
+      setAiHistoryLoaded(true);
+    }
+  };
+
+  const handleOpenAiChat = () => {
+    setShowAiChat(true);
+    loadAiHistory();
+  };
+
+  const handleClearAiChat = async () => {
+    if (!confirm('Clear your entire conversation with Faith AI?')) return;
+    try {
+      await apiClient.aiChat.clearHistory();
+      setAiMessages([]);
+    } catch (e) {
+      console.error('Clear AI history failed', e);
+    }
+  };
+
+  const sendAiMessage = async (e) => {
+    e?.preventDefault();
+    const text = aiInput.trim();
+    if (!text || aiLoading) return;
+
+    // Snapshot history BEFORE adding the new user bubble — this is what we
+    // send to the server so Gemini sees every prior turn in the right order.
+    const historySnapshot = aiMessages.map(m => ({ role: m.role, content: m.content }));
+
+    setAiMessages(prev => [...prev, { role: 'user', content: text, id: Date.now() }]);
+    setAiInput('');
+    setAiLoading(true);
+
+    try {
+      const data = await apiClient.aiChat.send(text, historySnapshot);
+      setAiMessages(prev => [...prev, { role: 'model', content: data.reply, id: data.messageId }]);
+    } catch (err) {
+      const msg = err?.message || 'Something went wrong.';
+      setAiMessages(prev => [...prev, { role: 'model', content: `⚠️ ${msg}`, id: Date.now() + 1 }]);
+    } finally {
+      setAiLoading(false);
+    }
+  };
+
+  // Scroll AI chat to bottom whenever messages change
+  useEffect(() => {
+    aiBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [aiMessages, aiLoading]);
+  // ────────────────────────────────────────────────────────────────────────────
 
   if (loadingAuth) return <div className="h-screen flex items-center justify-center">Loading Community...</div>;
 
@@ -643,6 +806,122 @@ export default function Chat() {
           </div>
         </div>
       )}
+
+      {/* ── AI Pastor Chat Panel ─────────────────────────────────────────── */}
+      {showAiChat && (
+        <div className="absolute inset-0 z-[80] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-0 md:p-4">
+          <div className="bg-white w-full md:max-w-lg md:rounded-2xl shadow-2xl flex flex-col h-full md:h-[80vh] overflow-hidden">
+
+            {/* Header */}
+            <div className="flex items-center gap-3 px-4 py-3 bg-gradient-to-r from-[#1a2744] to-[#2d5f8a] text-white shrink-0">
+              <div className="w-10 h-10 rounded-full bg-white/20 flex items-center justify-center">
+                <Sparkles className="w-5 h-5 text-[#c8a951]" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-base leading-tight">Faith AI</p>
+                <p className="text-[11px] text-white/70">Your spiritual companion · Powered by Gemini</p>
+              </div>
+              <button onClick={handleClearAiChat} className="p-1.5 rounded-full hover:bg-white/20 transition-colors" title="Clear conversation">
+                <RefreshCw className="w-4 h-4 text-white/70" />
+              </button>
+              <button onClick={() => setShowAiChat(false)} className="p-1.5 rounded-full hover:bg-white/20 transition-colors">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Messages */}
+            <div className="flex-1 overflow-y-auto p-4 space-y-4 bg-slate-50">
+              {aiMessages.length === 0 && !aiLoading && (
+                <div className="flex flex-col items-center justify-center h-full text-center px-6 py-10 text-gray-500">
+                  <div className="w-16 h-16 bg-[#1a2744]/10 rounded-full flex items-center justify-center mb-4">
+                    <Bot className="w-8 h-8 text-[#1a2744]" />
+                  </div>
+                  <p className="font-semibold text-[#1a2744] text-lg mb-1">Hello, {user?.full_name?.split(' ')[0] || 'Friend'}! 🙏</p>
+                  <p className="text-sm leading-relaxed">I'm <span className="font-semibold text-[#c8a951]">Faith AI</span>, your spiritual companion. Ask me anything about the Bible, prayer, hope, faith, or Christian living.</p>
+                  <div className="mt-5 grid grid-cols-1 gap-2 w-full">
+                    {["What does the Bible say about anxiety?", "Give me today's devotional thought", "Explain the plan of salvation", "How do I strengthen my prayer life?"].map(suggestion => (
+                      <button
+                        key={suggestion}
+                        onClick={() => { setAiInput(suggestion); aiInputRef.current?.focus(); }}
+                        className="text-left text-xs text-[#1a2744] bg-white border border-[#1a2744]/20 rounded-xl px-3 py-2 hover:bg-[#1a2744]/5 transition-colors"
+                      >
+                        💬 {suggestion}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {aiMessages.map((msg) => {
+                const isUser = msg.role === 'user';
+                return (
+                  <div key={msg.id} className={cn("flex gap-2 items-end", isUser ? "flex-row-reverse" : "flex-row")}>
+                    {!isUser && (
+                      <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#1a2744] to-[#2d5f8a] flex items-center justify-center shrink-0 shadow-sm">
+                        <Sparkles className="w-3.5 h-3.5 text-[#c8a951]" />
+                      </div>
+                    )}
+                    <div className={cn(
+                      "max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed shadow-sm",
+                      isUser
+                        ? "bg-[#1a2744] text-white rounded-br-none"
+                        : "bg-white border border-gray-200 text-gray-800 rounded-bl-none"
+                    )}>
+                      {isUser ? msg.content : formatAiText(msg.content)}
+                    </div>
+                  </div>
+                );
+              })}
+
+              {aiLoading && (
+                <div className="flex gap-2 items-end">
+                  <div className="w-7 h-7 rounded-full bg-gradient-to-br from-[#1a2744] to-[#2d5f8a] flex items-center justify-center shrink-0">
+                    <Sparkles className="w-3.5 h-3.5 text-[#c8a951]" />
+                  </div>
+                  <div className="bg-white border border-gray-200 rounded-2xl rounded-bl-none px-4 py-3 shadow-sm">
+                    <div className="flex gap-1">
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></span>
+                      <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <div ref={aiBottomRef} />
+            </div>
+
+            {/* Input */}
+            <form onSubmit={sendAiMessage} className="shrink-0 px-3 py-3 bg-white border-t flex gap-2 items-end">
+              <textarea
+                ref={aiInputRef}
+                value={aiInput}
+                onChange={e => {
+                  setAiInput(e.target.value);
+                  e.target.style.height = 'auto';
+                  e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+                }}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendAiMessage(); }
+                }}
+                placeholder="Ask Faith AI anything spiritual..."
+                rows={1}
+                disabled={aiLoading || !user}
+                className="flex-1 resize-none overflow-y-auto bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-[#1a2744] leading-relaxed disabled:opacity-50"
+                style={{ maxHeight: '120px', minHeight: '38px' }}
+              />
+              <Button
+                type="submit"
+                disabled={!aiInput.trim() || aiLoading || !user}
+                className="rounded-full h-9 w-9 p-0 flex items-center justify-center bg-[#1a2744] hover:bg-[#2d5f8a] text-white shrink-0"
+              >
+                <Send className="w-4 h-4" />
+              </Button>
+            </form>
+
+          </div>
+        </div>
+      )}
+      {/* ──────────────────────────────────────────────────────────────────── */}
 
       {/* Header with Mobile Toggle */}
       <header className="p-4 border-b bg-white flex justify-between items-center">
@@ -800,20 +1079,11 @@ export default function Chat() {
                   <Smile className="w-5 h-5" />
                 </Button>
               </div>
-              <textarea
-                ref={textareaRef}
+              <Input
                 value={input}
                 onChange={handleInputChange}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' && !e.shiftKey) {
-                    e.preventDefault();
-                    sendMessage(e);
-                  }
-                }}
                 placeholder={editingMessage ? "Edit your message..." : `Message ${activeChannel.name}...`}
-                rows={1}
-                className="flex-1 resize-none overflow-y-auto bg-gray-100 border-none rounded-2xl px-4 py-2 text-sm ring-offset-0 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0 leading-relaxed disabled:opacity-50 disabled:cursor-not-allowed transition-all duration-150"
-                style={{ maxHeight: '160px', minHeight: '36px' }}
+                className="bg-gray-100 border-none rounded-full ring-offset-0 focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0"
                 disabled={!user || sending}
               />
               <Button type="submit" className={cn("rounded-full h-9 w-9 p-0 flex items-center justify-center", editingMessage ? "bg-green-500 hover:bg-green-600 text-white" : "bg-[#0084ff] hover:bg-blue-600 text-white")} disabled={(!input.trim() && !sending) || sending}>
@@ -836,6 +1106,7 @@ export default function Chat() {
             getColor={getColor} 
             onViewPhoto={setViewingProfilePhoto}
             isUserOnline={isUserOnline}
+            onOpenAiChat={handleOpenAiChat}
           />
         </aside>
 
@@ -860,6 +1131,7 @@ export default function Chat() {
                 getColor={getColor} 
                 onViewPhoto={setViewingProfilePhoto}
                 isUserOnline={isUserOnline}
+                onOpenAiChat={() => { setShowMobileUsers(false); handleOpenAiChat(); }}
               />
             </aside>
           </div>
@@ -870,7 +1142,7 @@ export default function Chat() {
 }
 
 // Sub-component for the sidebar to avoid duplication
-function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto, isUserOnline }) {
+function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto, isUserOnline, onOpenAiChat }) {
   return (
     <div className="space-y-6">
       <div className="space-y-4">
@@ -887,6 +1159,22 @@ function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSw
             </div>
             <span className="font-medium">General Fellowship</span>
           </button>
+
+          {/* ── Faith AI button ── */}
+          <button
+            onClick={onOpenAiChat}
+            className="w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm transition-colors text-gray-600 hover:bg-amber-50 group"
+          >
+            <div className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-gradient-to-br from-[#1a2744] to-[#2d5f8a] group-hover:scale-105 transition-transform">
+              <Sparkles className="w-4 h-4 text-[#c8a951]" />
+            </div>
+            <div className="flex-1 text-left">
+              <span className="font-medium text-[#1a2744]">Faith AI</span>
+              <p className="text-[10px] text-gray-400 leading-tight">Bible · Prayer · Hope</p>
+            </div>
+            <span className="text-[9px] font-bold bg-[#c8a951] text-[#1a2744] px-1.5 py-0.5 rounded-full uppercase tracking-wide">AI</span>
+          </button>
+          {/* ────────────────────── */}
           {myGroups.map(group => {
             const unread = unreadCounts[group.id] || 0;
             return (

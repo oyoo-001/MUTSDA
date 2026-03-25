@@ -191,6 +191,14 @@ const ChatMessage = sequelize.define('ChatMessage', {
   reply_to_message_snippet: DataTypes.TEXT,
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
+// AI Chat model — stores per-user conversation history with the AI pastor
+const AiChatMessage = sequelize.define('AiChatMessage', {
+  user_email:  { type: DataTypes.STRING, allowNull: false },
+  role:        { type: DataTypes.ENUM('user', 'model'), allowNull: false },
+  content:     { type: DataTypes.TEXT,   allowNull: false },
+  session_id:  { type: DataTypes.STRING, allowNull: true }, // groups messages into one conversation session
+}, { timestamps: true, createdAt: 'created_date', updatedAt: false });
+
 const RSVP = sequelize.define('RSVP', {
   event_id: { type: DataTypes.INTEGER, allowNull: false },
   member_email: { type: DataTypes.STRING, allowNull: false },
@@ -1128,6 +1136,175 @@ coreRouter.post('/send-email', async (req, res) => {
 });
 
 // -----------------------------------------------------------------------------
+// 7c. AI PASTOR CHAT (Gemini API)
+// -----------------------------------------------------------------------------
+
+const aiChatRouter = express.Router();
+
+// GET /api/ai-chat/history — last 40 messages for the logged-in user
+aiChatRouter.get('/history', protect, async (req, res) => {
+  try {
+    const messages = await AiChatMessage.findAll({
+      where: { user_email: req.user.email },
+      order: [['created_date', 'ASC']],
+      limit: 60,
+    });
+    res.json(messages);
+  } catch (err) {
+    console.error('[AI Chat] history error:', err);
+    res.status(500).json({ message: 'Failed to load AI chat history.' });
+  }
+});
+
+// DELETE /api/ai-chat/history — clear the user's conversation
+aiChatRouter.delete('/history', protect, async (req, res) => {
+  try {
+    await AiChatMessage.destroy({ where: { user_email: req.user.email } });
+    res.json({ message: 'Conversation cleared.' });
+  } catch (err) {
+    console.error('[AI Chat] clear error:', err);
+    res.status(500).json({ message: 'Failed to clear conversation.' });
+  }
+});
+
+// POST /api/ai-chat — send a message and get Gemini reply
+aiChatRouter.post('/', protect, async (req, res) => {
+  const { message, session_id, history: clientHistory } = req.body;
+  if (!message || !message.trim()) {
+    return res.status(400).json({ message: 'Message is required.' });
+  }
+
+  const geminiApiKey = process.env.GEMINI_API_KEY;
+  if (!geminiApiKey) {
+    return res.status(503).json({ message: 'AI service is not configured. Please contact an admin.' });
+  }
+
+  try {
+    // 1. Save the user's message
+    await AiChatMessage.create({
+      user_email: req.user.email,
+      role: 'user',
+      content: message.trim(),
+      session_id: session_id || null,
+    });
+
+    // 2. Build Gemini history.
+    //    Prefer the full in-memory history sent by the client (always up-to-date
+    //    and avoids an extra DB round-trip). Fall back to a DB query only when
+    //    the client sends nothing (e.g. older clients or direct API calls).
+    let geminiHistory;
+
+    if (Array.isArray(clientHistory) && clientHistory.length > 0) {
+      // Client sends every prior turn before the new user message.
+      // Gemini requires strictly alternating user/model turns — enforce that by
+      // keeping only valid entries and skipping any consecutive same-role pairs.
+      const cleaned = [];
+      for (const turn of clientHistory) {
+        if (!turn.role || !turn.content) continue;
+        if (cleaned.length > 0 && cleaned[cleaned.length - 1].role === turn.role) continue;
+        cleaned.push(turn);
+      }
+      // Gemini must start with a 'user' turn
+      const startIdx = cleaned.findIndex(t => t.role === 'user');
+      geminiHistory = (startIdx >= 0 ? cleaned.slice(startIdx) : cleaned)
+        .slice(-30) // cap at 30 turns (~15 exchanges) to stay within token limits
+        .map(t => ({ role: t.role, parts: [{ text: t.content }] }));
+    } else {
+      // Fallback: load last 20 saved turns from DB
+      const dbHistory = await AiChatMessage.findAll({
+        where: { user_email: req.user.email },
+        order: [['created_date', 'DESC']],
+        limit: 21,
+      });
+      dbHistory.reverse();
+      // Exclude the message we just saved (last entry) — it goes in separately below
+      geminiHistory = dbHistory.slice(0, -1).map(m => ({
+        role: m.role,
+        parts: [{ text: m.content }],
+      }));
+    }
+
+    // 3. System instruction
+    const systemInstruction = {
+      parts: [{
+        text: `You are "Faith AI", a warm, wise, and compassionate spiritual companion for members of the MUTSDA Seventh-day Adventist Church community.
+
+Your purpose is to:
+• Guide users through Bible questions with clear, scripture-backed answers (always cite chapter and verse)
+• Offer hope, encouragement, and comfort grounded in God's Word
+• Discuss prayer, faith, spiritual growth, Adventist beliefs, and Christian living
+• Share relevant Bible stories, devotional thoughts, and practical spiritual advice
+• Pray with users when they ask, using heartfelt and biblical language
+• Discuss topics like forgiveness, anxiety, grief, marriage, family, purpose, and salvation
+
+Guidelines:
+• Always be warm, gentle, and non-judgmental
+• Base every answer firmly on Scripture — quote directly when helpful
+• If a question falls outside spiritual/biblical/religious topics, kindly redirect: "I'm here to help with spiritual matters — let's explore what God's Word says!"
+• Never give medical, legal, or financial advice
+• Encourage professional or pastoral help for serious personal crises
+• Keep answers focused and digestible — use short paragraphs and occasional Scripture quotes
+• End responses with a short encouraging Scripture verse when appropriate
+
+The current user's name is: ${req.user.full_name || 'Friend'}.`
+      }]
+    };
+
+    // 4. Call Gemini API
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`;
+    
+    const geminiBody = {
+      system_instruction: systemInstruction,
+      contents: [
+        ...geminiHistory,
+        { role: 'user', parts: [{ text: message.trim() }] },
+      ],
+      generationConfig: {
+        temperature: 0.7,
+        maxOutputTokens: 800,
+      },
+      safetySettings: [
+        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+      ],
+    };
+
+    const geminiRes = await fetch(geminiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(geminiBody),
+    });
+
+    const geminiData = await geminiRes.json();
+
+    if (!geminiRes.ok) {
+      console.error('[AI Chat] Gemini API error:', geminiData);
+      return res.status(502).json({ message: 'AI service returned an error. Please try again.' });
+    }
+
+    const aiText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
+    if (!aiText) {
+      return res.status(502).json({ message: 'No response from AI. Please try again.' });
+    }
+
+    // 5. Save the AI response
+    const aiMsg = await AiChatMessage.create({
+      user_email: req.user.email,
+      role: 'model',
+      content: aiText,
+      session_id: session_id || null,
+    });
+
+    res.json({ reply: aiText, messageId: aiMsg.id });
+  } catch (err) {
+    console.error('[AI Chat] error:', err);
+    res.status(500).json({ message: 'Something went wrong. Please try again.' });
+  }
+});
+
+// -----------------------------------------------------------------------------
 // 8. MOUNT ROUTES
 // -----------------------------------------------------------------------------
 
@@ -1143,6 +1320,7 @@ app.use('/api/rsvps', rsvpRouter);
 app.use('/api/chatmessages', chatRouter);
 app.use('/api/chat-groups', chatGroupRouter);
 app.use('/api/core', protect, admin, coreRouter);
+app.use('/api/ai-chat', aiChatRouter);
 
 // -----------------------------------------------------------------------------
 // 8b. JAAS (8x8.vc) JWT TOKEN ENDPOINT

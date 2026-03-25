@@ -111,5 +111,12 @@ export const apiClient = {
       }
     },
     ChatGroup: createChatGroupClient(),
-  }
+  },
+  aiChat: {
+    // history is the current in-memory messages array from Chat.jsx state,
+    // sent so Gemini always has the exact context the user sees.
+    send:         (message, history = []) => api.post('/ai-chat', { message, history }).then(res => res.data),
+    getHistory:   ()                      => api.get('/ai-chat/history').then(res => res.data),
+    clearHistory: ()                      => api.delete('/ai-chat/history').then(res => res.data),
+  },
 };
