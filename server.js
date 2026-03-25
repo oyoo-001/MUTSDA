@@ -844,47 +844,79 @@ const donationController = {
     }
   },
   webhook: async (req, res) => {
-    const secret = process.env.PAYSTACK_SECRET_KEY;
-    // Use rawBody for signature verification to avoid JSON parsing issues
-    const payload = req.rawBody || JSON.stringify(req.body);
-    const hash = crypto.createHmac('sha512', secret).update(payload).digest('hex');
+  const secret = process.env.PAYSTACK_SECRET_KEY;
 
-    if (hash === req.headers['x-paystack-signature']) {
-      const event = req.body;
-      if (event.event === 'charge.success') {
-        const { reference, amount, metadata, customer, channel } = event.data;
-        
-        try {
-          const [donation, created] = await Donation.findOrCreate({
-            where: { transaction_reference: reference },
-            defaults: {
-              donor_name: metadata?.donor_name || 'Anonymous',
-              donor_email: customer.email,
-              donation_type: metadata?.donation_type || 'offering',
-              custom_fund_name: metadata?.custom_fund_name,
-              amount: amount / 100,
-              payment_method: channel,
-              status: 'success'
-            }
-          });
-
-          if (!created && donation.status !== 'success') {
-            await donation.update({ status: 'success' });
-          }
-          console.log(`Webhook: Transaction ${reference} verified successfully.`);
-          if (req.app.get('io')) {
-            req.app.get('io').emit('donations_updated');
-          }
-        } catch (error) {
-          console.error('Webhook DB Error:', error);
-        }
-      }
-      res.sendStatus(200);
-    } else {
-      res.sendStatus(400);
-    }
+  // 1. CRITICAL: Prevent crash if secret is missing
+  if (!secret) {
+    console.error('❌ Webhook Error: PAYSTACK_SECRET_KEY is not defined in environment variables.');
+    return res.status(500).send('Server configuration error');
   }
+
+  try {
+    // 2. Use rawBody if available, otherwise stringify (Raw is better for hash matching)
+    const payload = req.rawBody || JSON.stringify(req.body);
+    
+    // Create the signature hash
+    const hash = crypto
+      .createHmac('sha512', secret)
+      .update(payload)
+      .digest('hex');
+
+    // 3. Verify Signature
+    if (hash !== req.headers['x-paystack-signature']) {
+      console.warn('⚠️ Webhook Warning: Invalid signature received.');
+      return res.sendStatus(400);
+    }
+
+    const event = req.body;
+
+    // 4. Handle Successful Charge
+    if (event.event === 'charge.success') {
+      const { reference, amount, metadata, customer, channel } = event.data;
+      
+      try {
+        const [donation, created] = await Donation.findOrCreate({
+          where: { transaction_reference: reference },
+          defaults: {
+            donor_name: metadata?.donor_name || 'Anonymous',
+            donor_email: customer?.email,
+            donation_type: metadata?.donation_type || 'offering',
+            custom_fund_name: metadata?.custom_fund_name,
+            amount: amount / 100,
+            payment_method: channel,
+            status: 'success'
+          }
+        });
+
+        // Update if it existed but was pending
+        if (!created && donation.status !== 'success') {
+          await donation.update({ status: 'success' });
+        }
+
+        console.log(`✅ Webhook: Transaction ${reference} verified successfully.`);
+
+        // 5. Emit Real-time Update
+        const io = req.app.get('io');
+        if (io) {
+          io.emit('donations_updated');
+        }
+      } catch (dbError) {
+        console.error('❌ Webhook Database Error:', dbError);
+        // We still return 200 to Paystack so they stop retrying, 
+        // but we log the error for internal fixing.
+      }
+    }
+
+    // Always tell Paystack we received the event
+    return res.sendStatus(200);
+
+  } catch (cryptoError) {
+    console.error('❌ Webhook Processing Error:', cryptoError);
+    return res.sendStatus(500);
+  }
+}
 };
+
 const mediaItemController = createController(MediaItem, 'media');
 const userController = {
   ...createController(User, 'users'),
