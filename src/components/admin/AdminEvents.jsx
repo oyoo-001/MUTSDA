@@ -16,9 +16,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2 } from "lucide-react";
+import { Plus, Edit, Trash2, Video, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 import { io } from "socket.io-client";
+
 
 const eventCategories = ["worship", "youth", "outreach", "fellowship", "seminar", "camp_meeting", "special"];
 
@@ -48,10 +49,12 @@ export default function AdminEvents({ events }) {
         const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
         onProgress(percentCompleted);
       }
+   
+   
     });
     return response.data;
   };
-
+  
   useEffect(() => {
     const VITE_API_URL = import.meta.env.VITE_API_URL || 'https://mutsda.onrender.com';
     const socket = io(VITE_API_URL, { transports: ['websocket'] });
@@ -66,7 +69,32 @@ export default function AdminEvents({ events }) {
       socket.disconnect();
     };
   }, [queryClient]);
+  // ── Generate a JaaS meeting link ─────────────────────────────────────────
+  // Reads VITE_JAAS_APP_ID from your .env (Vite exposes it at build time).
+  // Format: https://8x8.vc/<appId>/<roomName>
+  //
+  // Required .env (frontend):
+  //   VITE_JAAS_APP_ID=vpaas-magic-cookie-abc123/YourAppId
+  //
+  // If the env var is absent we fall back to the free public meet.jit.si
+  // server so the admin can still test without a JaaS account.
+  const generateMeetingLink = () => {
+    const appId    = import.meta.env.VITE_JAAS_APP_ID;
+    const randomId = Math.random().toString(36).substring(2, 9).toUpperCase();
+    const roomSlug = `MUTSDA-${randomId}`;
 
+    const meetingUrl = appId
+      ? `https://8x8.vc/${appId}/${roomSlug}`       // JaaS — requires JWT auth
+      : `https://meet.jit.si/${roomSlug}`;            // Fallback — no JWT needed
+
+    setForm(f => ({ ...f, video_link: meetingUrl }));
+
+    if (appId) {
+      toast.success("JaaS Meeting link generated!");
+    } else {
+      toast.info("Public meeting link generated (no VITE_JAAS_APP_ID set).");
+    }
+  };
   const openNew = () => {
     setEditing(null);
     setForm({ title: "", description: "", event_date: "", end_date: "", location: "", category: "worship", rsvp_enabled: true, published: true, video_link: "" });
@@ -175,8 +203,53 @@ export default function AdminEvents({ events }) {
               <div><Label>End Date & Time</Label><Input type="datetime-local" value={form.end_date} onChange={e => setForm({ ...form, end_date: e.target.value })} /></div>
             </div>
             <div><Label>Location</Label><Input value={form.location} onChange={e => setForm({ ...form, location: e.target.value })} /></div>
-            <div><Label>Live Stream / Video Link</Label><Input value={form.video_link} onChange={e => setForm({ ...form, video_link: e.target.value })} placeholder="YouTube URL or stream link" /></div>
-            <div><Label>Category</Label>
+<div className="space-y-2">
+  <Label className="flex justify-between items-center">
+    <span>Live Stream / Meeting Link</span>
+    <Button 
+      type="button" 
+      variant="ghost" 
+      size="xs" 
+      onClick={generateMeetingLink}
+      className="h-6 text-[10px] text-[#c8a951] hover:bg-[#c8a951]/10 gap-1 border border-[#c8a951]/20"
+    >
+      <Wand2 className="w-3 h-3" /> Generate Jitsi Meet
+    </Button>
+  </Label>
+  
+  <div className="relative">
+    <Input 
+      value={form.video_link} 
+      onChange={e => setForm({ ...form, video_link: e.target.value })} 
+      placeholder="YouTube URL or Jitsi link" 
+      className="pr-24"
+    />
+    
+    {/* Detection Badge: Shows Admin what the user will see */}
+    <div className="absolute right-2 top-1/2 -translate-y-1/2">
+      {form.video_link ? (
+        form.video_link.includes('8x8.vc') ? (
+          <Badge className="bg-blue-100 text-blue-700 hover:bg-blue-100 text-[9px] border-blue-200">
+            JaaS Meeting
+          </Badge>
+        ) : form.video_link.includes('jit.si') ? (
+          <Badge className="bg-indigo-100 text-indigo-700 hover:bg-indigo-100 text-[9px] border-indigo-200">
+            Jitsi Meeting
+          </Badge>
+        ) : (
+          <Badge className="bg-red-100 text-red-700 hover:bg-red-100 text-[9px] border-red-200">
+            Stream Mode
+          </Badge>
+        )
+      ) : null}
+    </div>
+  </div>
+  <p className="text-[10px] text-gray-400 italic">
+    * Jitsi links trigger the in-app interactive modal. Others trigger the video player.
+  </p>
+</div>
+            <div>
+              <Label>Category</Label>
               <Select value={form.category} onValueChange={v => setForm({ ...form, category: v })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>{eventCategories.map(c => <SelectItem key={c} value={c}>{c.replace(/_/g, " ")}</SelectItem>)}</SelectContent>

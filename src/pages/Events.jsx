@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -11,48 +11,69 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-// Added Share2 to the lucide-react imports
+import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Share2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
+
   useEffect(() => {
-    const t = setInterval(() => setNow(new Date()), 1000);
-    return () => clearInterval(t);
+    const timer = setInterval(() => setNow(new Date()), 1000);
+    return () => clearInterval(timer);
   }, []);
 
-  const target = new Date(date);
-  if (isNaN(target.getTime()) || isPast(target)) return null;
+  /**
+   * Parse the event date as EAT (UTC+3).
+   * - If the stored string already carries timezone info (ends with Z, +HH:MM, etc.)
+   *   → use it directly; no adjustment needed.
+   * - If it's a naive string ("2025-06-01T10:00:00") → append +03:00 so the
+   *   browser treats it as Nairobi time instead of its own local zone.
+   */
+  const parseAsEAT = (dateStr) => {
+    if (!dateStr) return null;
+    const hasTimezone = /Z|[+-]\d{2}:?\d{2}$/.test(dateStr);
+    return new Date(hasTimezone ? dateStr : `${dateStr}+03:00`);
+  };
 
-  const days = differenceInDays(target, now);
-  const hours = differenceInHours(target, now) % 24;
-  const mins = differenceInMinutes(target, now) % 60;
+  const target = parseAsEAT(date);
+
+  if (!target || isNaN(target.getTime()) || isPast(target)) return null;
+
+  const pad = (n) => n.toString().padStart(2, "0");
+
+  const days    = differenceInDays(target, now);
+  const hours   = differenceInHours(target, now) % 24;
+  const mins    = differenceInMinutes(target, now) % 60;
   const seconds = differenceInSeconds(target, now) % 60;
 
-  const pad = (n) => n.toString().padStart(2, '0');
-
   return (
-    <div className="flex items-center gap-1 bg-black text-[#c8a951] px-3 py-2 rounded-lg font-mono text-sm shadow-lg border border-[#c8a951]/30">
-      <div className="flex flex-col items-center min-w-[20px]">
-        <span className="text-lg font-bold leading-none">{pad(days)}</span>
-        <span className="text-[8px] opacity-60 uppercase">Day</span>
+    <div className="flex items-center gap-2 bg-[#1a2744] text-[#c8a951] px-3 py-2 rounded-xl font-mono shadow-md border border-[#c8a951]/20">
+      <div className="flex flex-col items-center min-w-[32px]">
+        <span className="text-xl font-bold leading-none">{pad(days)}</span>
+        <span className="text-[9px] opacity-70 uppercase mt-1">Day</span>
       </div>
-      <span className="text-[#c8a951]/50 -mt-2">:</span>
-      <div className="flex flex-col items-center min-w-[20px]">
-        <span className="text-lg font-bold leading-none">{pad(hours)}</span>
-        <span className="text-[8px] opacity-60 uppercase">Hr</span>
+
+      <span className="text-xl font-bold mb-4">:</span>
+
+      <div className="flex flex-col items-center min-w-[32px]">
+        <span className="text-xl font-bold leading-none">{pad(hours)}</span>
+        <span className="text-[9px] opacity-70 uppercase mt-1">Hrs</span>
       </div>
-      <span className="text-[#c8a951]/50 -mt-2">:</span>
-      <div className="flex flex-col items-center min-w-[20px]">
-        <span className="text-lg font-bold leading-none">{pad(mins)}</span>
-        <span className="text-[8px] opacity-60 uppercase">Min</span>
+
+      <span className="text-xl font-bold mb-4">:</span>
+
+      <div className="flex flex-col items-center min-w-[32px]">
+        <span className="text-xl font-bold leading-none">{pad(mins)}</span>
+        <span className="text-[9px] opacity-70 uppercase mt-1">Min</span>
       </div>
-      <span className="text-[#c8a951]/50 -mt-2">:</span>
-      <div className="flex flex-col items-center min-w-[20px]">
-        <span className="text-lg font-bold leading-none">{pad(seconds)}</span>
-        <span className="text-[8px] opacity-60 uppercase">Sec</span>
+
+      <span className="text-xl font-bold mb-4 animate-pulse text-[#c8a951]/60">:</span>
+
+      <div className="flex flex-col items-center min-w-[32px]">
+        <span className="text-xl font-bold leading-none">{pad(seconds)}</span>
+        <span className="text-[9px] opacity-70 uppercase mt-1">Sec</span>
       </div>
     </div>
   );
@@ -69,6 +90,14 @@ export default function Events() {
   const [viewingDetails, setViewingDetails] = useState(null);
   const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
   const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+
+  // ── Guest name prompt for Jitsi ──────────────────────────────────────────
+  const [guestNamePromptOpen, setGuestNamePromptOpen] = useState(false);
+  const [pendingMeetingEvent, setPendingMeetingEvent] = useState(null);
+  const [guestDisplayName, setGuestDisplayName] = useState("");
+  // ─────────────────────────────────────────────────────────────────────────
+
+  const jitsiContainerRef = useRef(null);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -91,19 +120,14 @@ export default function Events() {
     initialData: [],
   });
 
-  // Updated useEffect to handle the share link (?event=ID)
   useEffect(() => {
     const watchId = searchParams.get("watch");
-    const eventId = searchParams.get("event"); 
-
+    const eventId = searchParams.get("event");
     if (eventsData.length > 0) {
-      // Handle video watch link
       if (watchId) {
         const eventToWatch = eventsData.find(e => e.id.toString() === watchId);
         if (eventToWatch) setSelectedVideo(eventToWatch);
       }
-
-      // Handle direct event share link
       if (eventId) {
         const eventToView = eventsData.find(e => e.id.toString() === eventId);
         if (eventToView) setViewingDetails(eventToView);
@@ -158,6 +182,7 @@ export default function Events() {
     return match ? match[1] : null;
   };
 
+  // ── YouTube / standard video: still requires login ──────────────────────
   const handleWatch = (event) => {
     if (!user) {
       setPendingAuthVideo(event);
@@ -167,17 +192,45 @@ export default function Events() {
     }
   };
 
-  // Logic to share the specific event link
+  // ── Jitsi meeting: NO login required; guests enter a display name ────────
+  const handleJoinMeeting = (event) => {
+    const isJitsi =
+      event.video_link?.includes("8x8.vc") ||
+      event.video_link?.includes("meet.jit.si");
+
+    if (isJitsi) {
+      if (user) {
+        // Logged-in user: join immediately
+        setActiveMeeting(event);
+      } else {
+        // Guest: prompt for a display name first
+        setPendingMeetingEvent(event);
+        setGuestDisplayName("");
+        setGuestNamePromptOpen(true);
+      }
+    } else {
+      // Not a Jitsi link: fall back to YouTube / video player (requires login)
+      handleWatch(event);
+    }
+  };
+
+  // Called when guest submits their name
+  const handleGuestJoin = () => {
+    const name = guestDisplayName.trim();
+    if (!name) {
+      toast.error("Please enter your name to join.");
+      return;
+    }
+    setGuestNamePromptOpen(false);
+    setActiveMeeting(pendingMeetingEvent);
+  };
+  // ─────────────────────────────────────────────────────────────────────────
+
   const handleShare = async (event) => {
     const shareUrl = `${window.location.origin}${location.pathname}?event=${event.id}`;
-    
     if (navigator.share) {
       try {
-        await navigator.share({
-          title: event.title,
-          text: `Join us for: ${event.title}`,
-          url: shareUrl,
-        });
+        await navigator.share({ title: event.title, text: `Join us for: ${event.title}`, url: shareUrl });
       } catch (err) {
         console.log('Error sharing:', err);
       }
@@ -191,26 +244,353 @@ export default function Events() {
     }
   };
 
+  // Determine the display name to pass to Jitsi
+  const getDisplayName = () => {
+    if (user?.full_name) return user.full_name.replace(/['"']/g, '');
+    return guestDisplayName.trim() || "Guest";
+  };
+
+  const isAdmin = (u) => u?.role === "admin" || u?.is_admin === true;
+
+  const [activeMeeting, setActiveMeeting] = useState(null);
+  const [jaasIframeSrc, setJaasIframeSrc]   = useState("");
+
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  // JITSI PRODUCTION CONFIGURATION
+  //
+  // Two deployment modes are supported — pick the one that matches your setup:
+  //
+  // MODE A — Self-hosted Jitsi (meet.yourchurch.org)
+  //   • Set JITSI_PRODUCTION_DOMAIN to your server's hostname.
+  //   • Enable JWT in your Jitsi config (jicofo.conf / jitsi-meet/config.js).
+  //   • Point JWT_TOKEN_ENDPOINT at a backend route that signs HS256 tokens
+  //     with your Prosody APP_SECRET.
+  //   • JWT payload shape:
+  //       { iss: APP_ID, sub: DOMAIN, aud: "jitsi", room: "<roomName>",
+  //         exp: now+3600,
+  //         context: { user: { name, email, moderator: true|false } } }
+  //
+  // MODE B — JaaS / 8x8.vc (cloud-hosted)
+  //   • Leave JITSI_PRODUCTION_DOMAIN as "8x8.vc".
+  //   • Sign up at https://jaas.8x8.vc → get your App ID + RS256 private key.
+  //   • Point JWT_TOKEN_ENDPOINT at a backend route that signs RS256 tokens
+  //     with your JaaS private key.
+  //   • JWT payload shape (JaaS):
+  //       { iss: "chat", sub: APP_ID, aud: "jitsi", room: "*", exp: now+3600,
+  //         context: { user: { name, email, moderator: true|false },
+  //                    features: { livestreaming: false, recording: false } } }
+  //
+  // BOTH MODES — step-by-step backend setup:
+  //   1.  npm install jsonwebtoken  (Node) or  pip install PyJWT  (Python)
+  //   2.  Create route  POST /api/jitsi-token
+  //       • Authenticate the caller via session/cookie
+  //       • Read isModerator from body, derive from user.role in your DB
+  //       • Sign & return  { token: "<jwt>" }
+  //   3.  Set JWT_TOKEN_ENDPOINT below.
+  // ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  /**
+   * Your Jitsi production domain.
+   * Examples:
+   *   Self-hosted  →  "meet.yourchurch.org"
+   *   JaaS         →  "8x8.vc"
+   *   Public demo  →  "meet.jit.si"  (no JWT support, moderator via password only)
+   */
+  const JITSI_PRODUCTION_DOMAIN = "8x8.vc"; // JaaS production domain
+
+  /**
+   * Backend endpoint that mints and returns a signed JWT for the calling user.
+   * Set to null to skip JWT auth (admin moderator falls back to room-password).
+   *
+   * Request  (POST, JSON):  { roomName: string, isModerator: boolean }
+   * Response (JSON):        { token: "<signed-jwt>" }
+   */
+  const JWT_TOKEN_ENDPOINT = "/api/jaas/token"; // Backend JWT endpoint (server.js)
+
+  // ── Resolve the Jitsi domain from the event video URL ────────────────────
+  // Extracts only the hostname so it can be passed to JitsiMeetExternalAPI.
+  // Falls back to JITSI_PRODUCTION_DOMAIN if the URL is malformed.
+  const resolveJitsiDomain = (videoLink) => {
+    try {
+      return new URL(videoLink).hostname;
+    } catch {
+      return JITSI_PRODUCTION_DOMAIN;
+    }
+  };
+
+  // ── Resolve the room name from the event video URL ────────────────────────
+  // • Self-hosted / meet.jit.si  →  last path segment  (/MyRoom → "MyRoom")
+  // • JaaS (8x8.vc)             →  full path without leading slash
+  //     (/v2/<appId>/MyRoom → "v2/<appId>/MyRoom")
+  const resolveRoomName = (videoLink) => {
+    try {
+      const url = new URL(videoLink);
+      if (url.hostname.includes("8x8.vc")) {
+        return url.pathname.replace(/^\//, "");   // keep full JaaS path
+      }
+      return url.pathname.split("/").filter(Boolean).pop() || "MUTSDA";
+    } catch {
+      return videoLink.split("/").pop() || "MUTSDA";
+    }
+  };
+
+  // ── Fetch a signed JaaS JWT from the backend ─────────────────────────────
+  // Returns null when:
+  //   • The user is not signed in (guests join without a token), OR
+  //   • The backend request fails (logs a warning; falls back gracefully).
+  //
+  // The backend (POST /api/jaas/token) derives the moderator flag from the
+  // user's DB role — the isModerator param here is only informational.
+  const fetchJitsiToken = async (roomName, isModerator) => {
+    if (!JWT_TOKEN_ENDPOINT) return null;   // endpoint not configured
+    if (!user) return null;                  // guests join without a token
+
+    // Retrieve the auth token from localStorage (same pattern as your axios calls)
+    const authToken =
+      localStorage.getItem("token") || localStorage.getItem("auth_token");
+
+    try {
+      const res = await fetch(JWT_TOKEN_ENDPOINT, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          // Forward the Bearer token so the 'protect' middleware can verify
+          // the caller and derive their role from the database.
+          ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+        },
+        body: JSON.stringify({ roomName, isModerator }),
+      });
+      if (!res.ok) throw new Error(`JWT endpoint returned HTTP ${res.status}`);
+      const data = await res.json();
+      if (!data.token) throw new Error("Response missing 'token' field");
+      // Use the server-confirmed moderator flag rather than the client hint
+      return { token: data.token, moderator: data.moderator ?? isModerator };
+    } catch (err) {
+      console.warn("[JaaS] JWT fetch failed — joining without token:", err.message);
+      return null;
+    }
+  };
+
+  // ── Jitsi External API (meet.jit.si + self-hosted) ────────────────────────
+  // 8x8.vc (JaaS) does NOT support JitsiMeetExternalAPI from a third-party
+  // origin; it is handled separately via a plain <iframe> (see buildJaasIframeSrc).
+  useEffect(() => {
+    if (!activeMeeting) return;
+
+    const videoLink = activeMeeting.video_link || "";
+    const isJaas    = videoLink.includes("8x8.vc");
+
+    // JaaS is rendered via iframe only — this effect handles everything else.
+    if (isJaas) return;
+
+    const domain = resolveJitsiDomain(videoLink);
+    let   cancelled = false; // guard: React 18 StrictMode mounts effects twice
+
+    const init = async () => {
+      // ── Step 1: load external_api.js from the SAME domain as the meeting ──
+      //   This is critical for self-hosted servers. Loading meet.jit.si's
+      //   script against a different host will fail CORS / origin checks.
+      const loadExternalApi = () => {
+        // Re-use an already-loaded copy if the domain matches.
+        if (window.JitsiMeetExternalAPI) return Promise.resolve();
+        return new Promise((resolve, reject) => {
+          const existing = document.querySelector(
+            `script[src="https://${domain}/external_api.js"]`
+          );
+          if (existing) { existing.addEventListener("load", resolve); return; }
+          const script = document.createElement("script");
+          script.src     = `https://${domain}/external_api.js`;
+          script.async   = true;
+          script.onload  = resolve;
+          script.onerror = () =>
+            reject(new Error(`external_api.js failed to load from ${domain}`));
+          document.head.appendChild(script);
+        });
+      };
+
+      try {
+        await loadExternalApi();
+      } catch (err) {
+        console.error("[Jitsi]", err.message);
+        toast.error("Could not reach the meeting server. Please try again.");
+        return;
+      }
+
+      if (cancelled || !jitsiContainerRef.current) return;
+
+      // ── Step 2: resolve room, display name, and moderator flag ────────────
+      const roomName    = resolveRoomName(videoLink);
+      const displayName = getDisplayName();
+      const moderator   = isAdmin(user);
+
+      // ── Step 3: request a signed JaaS JWT from the backend ─────────────────
+      //   fetchJitsiToken returns { token, moderator } (server-confirmed role)
+      //   or null for guests / if the endpoint is unreachable.
+      const tokenResult = await fetchJitsiToken(roomName, moderator);
+      const jwt         = tokenResult?.token    ?? null;
+      const isMod       = tokenResult?.moderator ?? moderator;
+
+      if (cancelled || !jitsiContainerRef.current) return;
+
+      // ── Step 4: initialise JitsiMeetExternalAPI ───────────────────────────
+      const options = {
+        roomName,
+        width:      "100%",
+        height:     "100%",
+        parentNode: jitsiContainerRef.current,
+
+        // Attach the JWT when available — JaaS reads context.user.moderator
+        // and grants the correct role without any further client-side logic.
+        ...(jwt ? { jwt } : {}),
+
+        configOverwrite: {
+          prejoinPageEnabled:     false,  // skip the name/device-check screen
+          startWithAudioMuted:    true,   // polite default: join muted
+          startWithVideoMuted:    false,
+          disableInviteFunctions: true,   // hide "Invite people" button
+
+          // No-JWT fallback: ensure admin joins before anyone else so that
+          // Jitsi's "first participant = moderator" heuristic fires correctly.
+          ...(isMod && !jwt
+            ? { enableLobbyChat: false, autoKnockLobby: false }
+            : {}),
+        },
+
+        interfaceConfigOverwrite: {
+          TILE_VIEW_MAX_COLUMNS:  8,
+          SHOW_JITSI_WATERMARK:   false,
+          SHOW_BRAND_WATERMARK:   false,
+          TOOLBAR_BUTTONS: [
+            // Expose only the controls MUTSDA participants need.
+            "microphone", "camera", "closedcaptions", "desktop",
+            "fullscreen", "fodeviceselection", "hangup", "chat",
+            "raisehand", "tileview", "videobackgroundblur",
+            // Moderator-only controls — Jitsi hides these for non-mods automatically.
+            "mute-everyone", "kick", "livestreaming", "recording",
+          ],
+        },
+
+        userInfo: {
+          displayName,
+          email: user?.email ?? "",
+        },
+      };
+
+      const api = new window.JitsiMeetExternalAPI(domain, options);
+
+      // ── Step 5: handle post-join moderator promotion ───────────────────────
+      api.addEventListener("videoConferenceJoined", () => {
+        if (!moderator) return;
+
+        if (jwt) {
+          // JWT path: the server already confirmed moderator via the token claim.
+          toast.success("You joined as Moderator.", { duration: 3000 });
+        } else {
+          // Password fallback: lock the room so you become the effective owner.
+          // Note — any participant who knows this password can also set it and
+          // gain the same rights. For true security, configure a JWT backend.
+          api.executeCommand("password", "MUTSDA_MOD_2024");
+          toast.success("You joined as Moderator (room secured).", { duration: 3000 });
+        }
+      });
+
+      // ── Step 6: log server-confirmed role (useful for debugging) ──────────
+      api.addEventListener("participantRoleChanged", ({ id, role }) => {
+        const me = api.getParticipantsInfo()
+          .find((p) => p.displayName === displayName);
+        if (me && id === me.participantId && role === "moderator") {
+          console.info("[Jitsi] Server confirmed moderator role.");
+        }
+      });
+
+      api.addEventListener("readyToClose", () => {
+        if (!cancelled) setActiveMeeting(null);
+      });
+
+      // Stash API instance on the container DOM node for cleanup.
+      jitsiContainerRef.current._jitsiApi = api;
+    };
+
+    init();
+
+    return () => {
+      cancelled = true;
+      if (jitsiContainerRef.current?._jitsiApi) {
+        jitsiContainerRef.current._jitsiApi.dispose();
+        jitsiContainerRef.current._jitsiApi = null;
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeeting, user]);
+
+  // ── Build JaaS (8x8.vc) iframe src ───────────────────────────────────────
+  // JaaS rooms are loaded via a plain iframe. Configuration is passed as URL
+  // hash fragments. A JWT (RS256, signed with your JaaS private key) is
+  // required to grant moderator rights; without one the user joins as attendee.
+  //
+  // To wire up JWT for JaaS:
+  //   1. Sign up at https://jaas.8x8.vc → Settings → Generate key pair.
+  //   2. Set JWT_TOKEN_ENDPOINT to a backend route that signs RS256 tokens.
+  //   3. Replace the fetchJaasToken stub below with a real async call.
+  const buildJaasIframeSrc = async (event) => {
+    if (!event?.video_link) return "";
+
+    const roomName    = resolveRoomName(event.video_link);
+    const displayName = encodeURIComponent(getDisplayName());
+    const moderator   = isAdmin(user);
+
+    // Attempt to fetch a JWT for the JaaS room (RS256, signed server-side).
+    const tokenResult = await fetchJitsiToken(roomName, moderator);
+    const jwt = tokenResult?.token ?? null;
+
+    const params = [
+      "config.prejoinPageEnabled=false",
+      "config.startWithAudioMuted=true",
+      "config.startWithVideoMuted=false",
+      `userInfo.displayName="${displayName}"`,
+      ...(jwt ? [`token=${jwt}`] : []),       // attach JWT when available
+    ].join("&");
+
+    return `${event.video_link}#${params}`;
+  };
+
+  // Build the JaaS src once when activeMeeting changes (async).
+  useEffect(() => {
+    if (!activeMeeting?.video_link?.includes("8x8.vc")) {
+      setJaasIframeSrc("");
+      return;
+    }
+    buildJaasIframeSrc(activeMeeting).then(setJaasIframeSrc);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeMeeting, user]);
+
   return (
     <div className="min-h-screen bg-[#faf8f2]">
+      {/* ── YouTube / Video player dialog ─────────────────────────────── */}
       <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
         <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl p-0 bg-black border-none overflow-hidden rounded-2xl">
           <DialogHeader className="sr-only"><DialogTitle>{selectedVideo?.title}</DialogTitle></DialogHeader>
           <div className="relative aspect-video w-full bg-black">
             {selectedVideo && (
               getYouTubeId(selectedVideo.video_link) ? (
-                <iframe src={`https://www.youtube.com/embed/${getYouTubeId(selectedVideo.video_link)}?autoplay=1`} className="w-full h-full" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowFullScreen />
+                <iframe
+                  src={`https://www.youtube.com/embed/${getYouTubeId(selectedVideo.video_link)}?autoplay=1`}
+                  className="w-full h-full"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                />
               ) : (
                 <video controls autoPlay className="w-full h-full" src={selectedVideo.video_link} />
               )
             )}
           </div>
           <div className="p-4 bg-white">
-             <h3 className="font-bold text-lg text-[#1a2744]">{selectedVideo?.title}</h3>
+            <h3 className="font-bold text-lg text-[#1a2744]">{selectedVideo?.title}</h3>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* ── Event details dialog ──────────────────────────────────────── */}
       <Dialog open={!!viewingDetails} onOpenChange={() => setViewingDetails(null)}>
         <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
           <DialogHeader>
@@ -232,17 +612,100 @@ export default function Events() {
               )}
             </div>
             {viewingDetails?.description && (
-              <div className="text-sm text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-wrap">{viewingDetails.description}</div>
+              <div className="text-sm text-gray-600 leading-relaxed max-h-[60vh] overflow-y-auto whitespace-pre-wrap">
+                {viewingDetails.description}
+              </div>
             )}
             <div className="pt-4 border-t flex justify-end">
-               <Button onClick={() => handleShare(viewingDetails)} variant="outline" className="gap-2">
-                  <Share2 className="w-4 h-4" /> Share Event
-               </Button>
+              <Button onClick={() => handleShare(viewingDetails)} variant="outline" className="gap-2">
+                <Share2 className="w-4 h-4" /> Share Event
+              </Button>
             </div>
           </div>
         </DialogContent>
       </Dialog>
 
+      {/* ── Guest name prompt (no login required for Jitsi) ───────────── */}
+      <AlertDialog open={guestNamePromptOpen} onOpenChange={setGuestNamePromptOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Enter Your Name</AlertDialogTitle>
+            <AlertDialogDescription>
+              You can join this meeting as a guest. Please enter the name others will see.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="px-1 py-2">
+            <Input
+              placeholder="Your full name"
+              value={guestDisplayName}
+              onChange={(e) => setGuestDisplayName(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleGuestJoin()}
+              autoFocus
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setPendingMeetingEvent(null)}>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleGuestJoin}
+              className="bg-blue-600 hover:bg-blue-700 text-white"
+            >
+              Join Meeting
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* ── Active Jitsi meeting modal ────────────────────────────────── */}
+      <Dialog open={!!activeMeeting} onOpenChange={() => setActiveMeeting(null)}>
+        <DialogContent className="w-[95vw] max-w-6xl h-[85vh] p-0 bg-[#1a2744] border-none overflow-hidden rounded-2xl flex flex-col">
+          <div className="p-4 border-b border-white/10 flex justify-between items-center bg-[#1a2744]">
+            <div className="flex items-center gap-3">
+              <div className="w-3 h-3 bg-red-500 rounded-full animate-pulse" />
+              <h3 className="font-bold text-white text-lg">{activeMeeting?.title}</h3>
+              {isAdmin(user) && (
+                <Badge className="bg-[#c8a951] text-[#1a2744] text-xs font-semibold ml-1">
+                  Moderator
+                </Badge>
+              )}
+            </div>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-white/70 hover:text-[#c8a951]"
+              onClick={() => window.open(activeMeeting?.video_link, '_blank')}
+            >
+              Open Fullscreen
+            </Button>
+          </div>
+
+          <div className="flex-1 bg-black relative" ref={jitsiContainerRef}>
+            {/*
+              8x8.vc (JaaS): rendered as a plain iframe.
+              The src is built asynchronously (JWT fetch included) and stored in jaasIframeSrc.
+              A loading spinner is shown until the src is ready.
+
+              meet.jit.si / self-hosted: JitsiMeetExternalAPI mounts directly
+              into jitsiContainerRef — no iframe element needed here.
+            */}
+            {activeMeeting?.video_link?.includes("8x8.vc") && (
+              jaasIframeSrc ? (
+                <iframe
+                  src={jaasIframeSrc}
+                  allow="camera; microphone; fullscreen; display-capture; autoplay; clipboard-write"
+                  className="w-full h-full border-none"
+                  title="Jitsi Meeting"
+                />
+              ) : (
+                <div className="flex items-center justify-center w-full h-full">
+                  <div className="w-8 h-8 border-4 border-[#c8a951] border-t-transparent rounded-full animate-spin" />
+                </div>
+              )
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* ── Login required for YouTube/video ─────────────────────────── */}
       <AlertDialog open={loginAlertOpen} onOpenChange={setLoginAlertOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -251,11 +714,16 @@ export default function Events() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={() => navigate("/auth", { state: { from: { pathname: location.pathname, search: `?watch=${pendingAuthVideo?.id}` } } })}>Sign In</AlertDialogAction>
+            <AlertDialogAction
+              onClick={() => navigate("/auth", { state: { from: { pathname: location.pathname, search: `?watch=${pendingAuthVideo?.id}` } } })}
+            >
+              Sign In
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
 
+      {/* ── Hero ──────────────────────────────────────────────────────── */}
       <section className="relative py-24 bg-gradient-to-br from-[#1a2744] to-[#2d5f8a]">
         <div className="max-w-7xl mx-auto px-4 lg:px-8 text-center">
           <span className="text-[#c8a951] text-sm font-semibold uppercase tracking-wider">What's Happening</span>
@@ -263,6 +731,7 @@ export default function Events() {
         </div>
       </section>
 
+      {/* ── Filter tabs ───────────────────────────────────────────────── */}
       <section className="py-8 px-4 lg:px-8 border-b bg-white sticky top-16 z-30">
         <div className="max-w-5xl mx-auto flex justify-center">
           <Tabs value={filter} onValueChange={setFilter}>
@@ -276,6 +745,7 @@ export default function Events() {
         </div>
       </section>
 
+      {/* ── Events list ───────────────────────────────────────────────── */}
       <section className="py-12 px-4 lg:px-8">
         <div className="max-w-5xl mx-auto space-y-6">
           {isError ? (
@@ -313,11 +783,6 @@ export default function Events() {
                         <Calendar className="w-12 h-12 text-[#c8a951]/40" />
                       </div>
                     )}
-                    {event.video_link && (
-                      <div className="absolute top-3 left-3 z-10">
-                        <Badge className="bg-red-600 text-white border-0 animate-pulse gap-1"><Video className="w-3 h-3" /> Live</Badge>
-                      </div>
-                    )}
                     <div className="p-6 flex-1">
                       <div className="flex flex-wrap items-center gap-2 mb-3">
                         {event.category && (
@@ -352,7 +817,27 @@ export default function Events() {
                           <Countdown date={event.event_date} />
                         )}
                         {event.video_link && (
-                          <Button size="sm" onClick={() => handleWatch(event)} className="bg-red-600 hover:bg-red-700 text-white gap-1.5"><Play className="w-3.5 h-3.5 fill-current" /> Watch Now</Button>
+                          <div className="flex gap-2">
+                            {(event.video_link.includes('jit.si') || event.video_link.includes('8x8.vc')) ? (
+                              <Button
+                                size="sm"
+                                onClick={() => handleJoinMeeting(event)}
+                                className="bg-blue-600 hover:bg-blue-700 text-white gap-2 shadow-sm transition-all"
+                              >
+                                <Video className="w-4 h-4" />
+                                Join Live Meeting
+                              </Button>
+                            ) : (
+                              <Button
+                                size="sm"
+                                onClick={() => handleWatch(event)}
+                                className="bg-red-600 hover:bg-red-700 text-white gap-2 shadow-sm transition-all"
+                              >
+                                <Play className="w-4 h-4 fill-current" />
+                                Watch Now
+                              </Button>
+                            )}
+                          </div>
                         )}
                         {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && !isPast(new Date(event.event_date)) && (
                           <Button
@@ -371,18 +856,17 @@ export default function Events() {
                           </Badge>
                         )}
                         {!user && event.rsvp_enabled && (
-                          <Button 
-                          size="sm" 
-                          variant="outline" 
-                          onClick={() => navigate("/auth", { state: { from: location } })}
-                                  >
-                          Sign in to RSVP
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => navigate("/auth", { state: { from: location } })}
+                          >
+                            Sign in to RSVP
                           </Button>
                         )}
                         <Button size="sm" variant="ghost" className="gap-1.5 text-gray-500" onClick={() => setViewingDetails(event)}>
                           <Info className="w-3.5 h-3.5" /> Info
                         </Button>
-                        {/* New Share Button */}
                         <Button size="sm" variant="ghost" className="gap-1.5 text-blue-600" onClick={() => handleShare(event)}>
                           <Share2 className="w-3.5 h-3.5" /> Share
                         </Button>

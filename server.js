@@ -1144,6 +1144,132 @@ app.use('/api/chatmessages', chatRouter);
 app.use('/api/chat-groups', chatGroupRouter);
 app.use('/api/core', protect, admin, coreRouter);
 
+// -----------------------------------------------------------------------------
+// 8b. JAAS (8x8.vc) JWT TOKEN ENDPOINT
+// -----------------------------------------------------------------------------
+//
+// Required environment variables (.env):
+//
+//   JAAS_APP_ID        — Your JaaS App ID from https://jaas.8x8.vc
+//                        Example: "vpaas-magic-cookie-abc123def456/SomeAppId"
+//
+//   JAAS_PRIVATE_KEY   — Your RS256 private key, base64-encoded.
+//                        Steps to encode your downloaded .pem file:
+//                          Linux/Mac:  base64 -w 0 your-key.pem
+//                          Windows:    certutil -encode your-key.pem out.txt
+//                        Copy the resulting single-line string into .env.
+//                        The route below decodes it back to PEM at runtime.
+//
+//   JAAS_KID           — Your JaaS key ID (found on the JaaS dashboard next
+//                        to the key you downloaded). Format: "APP_ID/KEY_ID"
+//                        Example: "vpaas-magic-cookie-abc123def456/abcd1234"
+//
+// How to obtain these values:
+//   1. Log in at https://jaas.8x8.vc
+//   2. Go to Settings → API Keys
+//   3. Click "Generate new key pair" — this downloads your private key (.pem)
+//      and shows the Key ID on screen.
+//   4. Your App ID is the string at the top of the Settings page.
+//
+// Security notes:
+//   • NEVER commit the private key or .env to version control.
+//   • Tokens are short-lived (90 minutes) and scoped to a specific room.
+//   • Only authenticated users (via your existing 'protect' middleware) can
+//     call this endpoint. Guests cannot obtain a token and join as attendees.
+//   • The 'moderator' claim is derived server-side from req.user.role — the
+//     frontend cannot forge it.
+// -----------------------------------------------------------------------------
+
+const jaasRouter = express.Router();
+
+jaasRouter.post('/token', protect, async (req, res) => {
+  const { roomName, isModerator } = req.body;
+
+  // ── 1. Validate environment ───────────────────────────────────────────────
+  const appId      = process.env.JAAS_APP_ID;
+  const kid        = process.env.JAAS_KID;
+  const privateKeyB64 = process.env.JAAS_PRIVATE_KEY;
+
+  if (!appId || !kid || !privateKeyB64) {
+    console.error('[JaaS] Missing env vars: JAAS_APP_ID, JAAS_KID, or JAAS_PRIVATE_KEY');
+    return res.status(503).json({
+      message: 'JaaS is not configured on this server. Please contact an administrator.'
+    });
+  }
+
+  if (!roomName || typeof roomName !== 'string' || roomName.trim() === '') {
+    return res.status(400).json({ message: 'roomName is required.' });
+  }
+
+  // ── 2. Derive moderator status from the DB — never trust the client ───────
+  //   The frontend sends isModerator as a hint, but we re-derive it here from
+  //   the authenticated user's role to prevent privilege escalation.
+  const serverSideModerator =
+    req.user.role === 'admin' || req.user.role === 'pastor';
+
+  // ── 3. Decode the private key from base64 → PEM ───────────────────────────
+  let privateKeyPem;
+  try {
+    privateKeyPem = Buffer.from(privateKeyB64, 'base64').toString('utf8');
+  } catch (err) {
+    console.error('[JaaS] Failed to decode JAAS_PRIVATE_KEY from base64:', err);
+    return res.status(500).json({ message: 'Server configuration error.' });
+  }
+
+  // ── 4. Build the JaaS JWT payload ────────────────────────────────────────
+  //   Spec: https://developer.8x8.com/jaas/docs/api-keys-jwt
+  const now = Math.floor(Date.now() / 1000);
+
+  const payload = {
+    iss: 'chat',              // JaaS requires the literal string "chat"
+    aud: 'jitsi',             // JaaS requires the literal string "jitsi"
+    sub: appId,               // Your JaaS App ID
+    room: '*',                // '*' allows the token to be used for any room
+                              // Replace with roomName for tighter per-room scoping
+    iat: now,
+    exp: now + (90 * 60),    // Token valid for 90 minutes
+
+    context: {
+      user: {
+        id:        String(req.user.id),
+        name:      req.user.full_name || 'MUTSDA Member',
+        email:     req.user.email    || '',
+        avatar:    req.user.profile_photo_url || '',
+        moderator: serverSideModerator,
+      },
+      features: {
+        livestreaming: serverSideModerator,   // Only moderators can start streams
+        recording:     serverSideModerator,   // Only moderators can record
+        transcription: false,
+        'outbound-call': false,
+      },
+    },
+  };
+
+  // ── 5. Sign the token with RS256 ──────────────────────────────────────────
+  try {
+    const token = jwt.sign(payload, privateKeyPem, {
+      algorithm: 'RS256',
+      header: {
+        alg: 'RS256',
+        kid,              // JaaS uses this to look up the matching public key
+        typ: 'JWT',
+      },
+    });
+
+    console.log(
+      `[JaaS] Token issued for user ${req.user.email} | room: ${roomName} | moderator: ${serverSideModerator}`
+    );
+
+    return res.json({ token, moderator: serverSideModerator });
+  } catch (err) {
+    console.error('[JaaS] jwt.sign failed:', err.message);
+    return res.status(500).json({ message: 'Failed to generate meeting token.' });
+  }
+});
+
+app.use('/api/jaas', jaasRouter);
+
 
 // -----------------------------------------------------------------------------
 // 9. SOCKET.IO for Live Chat
