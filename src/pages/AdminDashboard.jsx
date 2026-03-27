@@ -103,7 +103,7 @@ export default function AdminDashboard() {
 
   const { data: donations } = useQuery({
     queryKey: ["admin-donations"],
-    queryFn: () => apiClient.entities.Donation.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.Donation.filter({ all: 'true' }, "-created_date"),
     initialData: [],
     enabled: !!user,
   });

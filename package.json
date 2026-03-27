@@ -1,6 +1,6 @@
 {
   "name": "mutsda-backend",
-  "version": "3.1.4",
+  "version": "3.0.0",
   "description": "Backend for the MUTSDA application",
   "main": "server.js",
   "type": "module",

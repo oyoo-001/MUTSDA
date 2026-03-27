@@ -112,8 +112,7 @@ export default function MemberProfile() {
     </div>;
   }
 
-  const totalGiving = donations.reduce((s, d) => s + (d.amount || 0), 0);
-
+const totalGiving = donations.reduce((s, d) => s + parseFloat(d.amount || 0), 0);
   const displayDate = (dateString) => {
     if (!dateString) return "—";
     const date = new Date(dateString);

@@ -16,6 +16,7 @@ import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import { Resend } from 'resend';
 import { OAuth2Client } from 'google-auth-library';
 import fs from 'fs';
+import nodemailer from 'nodemailer';
 
 dotenv.config();
 
@@ -33,9 +34,18 @@ const corsOptions = {
       'http://localhost:5173',
       'http://localhost:5000',
       'https://mutsda.onrender.com',
-       'https://philologic-debi-unsophisticatedly.ngrok-free.dev'
-    ];
-    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.ngrok-free.dev') || origin.endsWith('.ngrok-free.app') || origin.endsWith('.ngrok.io')) {
+      'https://philologic-debi-unsophisticatedly.ngrok-free.dev'
+    ].filter(Boolean);
+
+    // In development only, allow configured ngrok domains via env var
+    const allowedNgrokDomain = process.env.ALLOWED_NGROK_DOMAIN; // e.g. "myapp.ngrok-free.app"
+
+    if (!origin) return callback(null, true); // allow non-browser requests (mobile apps, curl)
+
+    if (
+      allowedOrigins.includes(origin) ||
+      (allowedNgrokDomain && origin === `https://${allowedNgrokDomain}`)
+    ) {
       callback(null, true);
     } else {
       callback(new Error('Not allowed by CORS'));
@@ -52,6 +62,13 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
+// Captures the raw request body so webhook signature verification works correctly.
+app.use('/api/donations/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
+  req.rawBody = req.body; // express.raw() puts the Buffer here
+  req.body = JSON.parse(req.body); // re-parse for downstream use
+  next();
+});
+
 app.get('/ping', (req, res) => res.status(200).send('OK'));
 // -----------------------------------------------------------------------------
 // 3. DATABASE SETUP (from database.js)
@@ -332,8 +349,6 @@ const admin = (req, res, next) => {
 
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
-import nodemailer from 'nodemailer';
-
 // Create a transporter object using the default SMTP transport
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || process.env.EMAIL_HOST,
@@ -424,10 +439,10 @@ const createStyledEmail = (title, content) => {
 const createController = (model, namespace) => ({
   getAll: async (req, res) => {
     try {
-      // Basic filtering from query params
-      const where = { ...req.query };
-      // TODO: Add sorting capabilities if needed
-      const items = await model.findAll({ where, order: [['created_date', 'DESC']] });
+      // Do not pass raw req.query to the DB — it would allow any column to be
+      // used as a filter, enabling data enumeration and unexpected behaviour.
+      // Callers that need filtering should override getAll in their own controller.
+      const items = await model.findAll({ order: [['created_date', 'DESC']] });
       res.json(items);
     } catch (err) {
       console.error(`Error in ${model.name} getAll:`, err);
@@ -579,8 +594,13 @@ const authController = {
     try {
       const user = await User.findByPk(req.user.id);
       if (user) {
-        // Exclude password from being updated this way
-        const { password, ...updateData } = req.body;
+        // Whitelist only the fields a user may update on their own profile.
+        // Never allow role, email, password, or reset tokens to be changed here.
+        const ALLOWED_FIELDS = ['full_name', 'phone', 'address', 'date_of_birth',  'emergency_contact'];
+        const updateData = {};
+        for (const field of ALLOWED_FIELDS) {
+          if (req.body[field] !== undefined) updateData[field] = req.body[field];
+        }
         await user.update(updateData);
         const updatedUser = await User.findByPk(req.user.id, {
           attributes: { exclude: ['password'] }
@@ -634,8 +654,7 @@ const authController = {
       });
 
       console.log('--- USER INVITED ---');
-      console.log(`User ${email} created with temporary password: ${tempPassword}`);
-      console.log('Advise user to log in and change their password, or use the "Forgot Password" feature.');
+      console.log(`User ${email} invited. They should use "Forgot Password" to set their own password.`);
       console.log('--------------------');
 
       if (req.app.get('io')) {
@@ -655,8 +674,8 @@ const authController = {
         return res.status(200).json({ message: 'If an account with that email exists, an OTP has been sent.' });
       }
 
-      // 1. Generate a 6-digit OTP
-      const otp = Math.floor(100000 + Math.random() * 900000).toString();
+      // 1. Generate a cryptographically secure 6-digit OTP
+      const otp = crypto.randomInt(100000, 1000000).toString();
 
       // 2. Hash the OTP and set it on the user model
       user.resetPasswordToken = crypto
@@ -837,6 +856,25 @@ const contactMessageController = {
 
 const donationController = {
   ...createController(Donation, 'donations'),
+
+  getAll: async (req, res) => {
+    try {
+      // Standard view: users (including admins) see only their own donations.
+      // Dashboard view: admins/pastors see everything if they pass the 'all' flag.
+      const isAdmin = req.user.role === 'admin' || req.user.role === 'pastor';
+      const where = (isAdmin && req.query.all === 'true') ? {} : { donor_email: req.user.email };
+
+      const items = await Donation.findAll({ 
+        where,
+        order: [['created_date', 'DESC']] 
+      });
+      res.json(items);
+    } catch (err) {
+      console.error(`Error in Donation getAll:`, err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+
   create: async (req, res) => {
     const { transaction_reference, amount } = req.body;
 
@@ -845,7 +883,13 @@ const donationController = {
     }
 
     try {
-      // 1. Verify transaction with Paystack
+     
+      const existing = await Donation.findOne({ where: { transaction_reference } });
+      if (existing) {
+        return res.status(409).json({ message: "This transaction has already been recorded." });
+      }
+
+     
       const paystackResponse = await new Promise((resolve, reject) => {
         const options = {
           hostname: 'api.paystack.co',
@@ -853,7 +897,7 @@ const donationController = {
           path: `/transaction/verify/${encodeURIComponent(transaction_reference)}`,
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${process.env.VITE_PAYSTACK_SECRET_KEY}`,
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           }
         };
 
@@ -861,11 +905,8 @@ const donationController = {
           let data = '';
           apiRes.on('data', (chunk) => { data += chunk; });
           apiRes.on('end', () => {
-            try {
-              resolve(JSON.parse(data));
-            } catch (e) {
-              reject(new Error("Failed to parse Paystack response"));
-            }
+            try { resolve(JSON.parse(data)); }
+            catch (e) { reject(new Error("Failed to parse Paystack response")); }
           });
         });
 
@@ -873,27 +914,24 @@ const donationController = {
         apiReq.end();
       });
 
-      // 2. Check if verification was successful and data is valid
       if (!paystackResponse.status || paystackResponse.data.status !== 'success') {
         console.error("Paystack verification failed:", paystackResponse);
         return res.status(400).json({ message: "Transaction verification failed." });
       }
 
-      // 3. Security Check: Verify amount matches
-      const paidAmount = paystackResponse.data.amount; // Amount in kobo/cents
-      const expectedAmount = Math.round(parseFloat(amount) * 100); // Round to avoid floating point errors
+      const paidAmount = paystackResponse.data.amount;
+      const expectedAmount = Math.round(parseFloat(amount) * 100);
       if (paidAmount < expectedAmount) {
         console.error(`Amount mismatch. Paid: ${paidAmount}, Expected: ${expectedAmount}`);
         return res.status(400).json({ message: `Amount mismatch. Paid: ${paidAmount}, Expected: ${expectedAmount}` });
       }
 
-      // 4. If all checks pass, create the donation record
       const donationPayload = {
         ...req.body,
         status: 'success',
-        amount: amount // Ensure amount is explicitly set
+        amount: amount,
       };
-      
+
       const donation = await Donation.create(donationPayload);
       console.log(`Donation logged successfully: ID ${donation.id} - Ref ${transaction_reference}`);
       if (req.app.get('io')) {
@@ -905,11 +943,7 @@ const donationController = {
       res.status(500).json({ message: 'Server Error during donation processing.' });
     }
   },
-  // POST /api/donations/verify — called by the frontend after a successful Paystack popup.
-  // 1. Guards against duplicate logging (idempotent via findOrCreate).
-  // 2. Re-verifies the transaction server-side with Paystack.
-  // 3. Checks that the paid amount is not less than the expected amount.
-  // 4. Extracts donor details from the transaction's metadata as the source-of-truth.
+
   verify: async (req, res) => {
     const { reference, amount, donor_name, donor_email, donation_type, custom_fund_name } = req.body;
 
@@ -918,14 +952,13 @@ const donationController = {
     }
 
     try {
-      // ── 1. Duplicate guard ────────────────────────────────────────────────────
       const existing = await Donation.findOne({ where: { transaction_reference: reference } });
       if (existing && existing.status === 'success') {
         console.log(`[Donation] Duplicate reference received, returning existing record: ${reference}`);
         return res.status(200).json({ ...existing.toJSON(), duplicate: true });
       }
 
-      // ── 2. Verify transaction with Paystack ───────────────────────────────────
+      // FIX 2 (Critical): Corrected env var name throughout.
       const paystackResponse = await new Promise((resolve, reject) => {
         const options = {
           hostname: 'api.paystack.co',
@@ -933,7 +966,7 @@ const donationController = {
           path: `/transaction/verify/${encodeURIComponent(reference)}`,
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${process.env.VITE_PAYSTACK_SECRET_KEY}`,
+            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
           },
         };
 
@@ -957,10 +990,8 @@ const donationController = {
 
       const txData = paystackResponse.data;
 
-      // ── 3. Amount integrity check ─────────────────────────────────────────────
-      // Only run this check if the client supplied an expected amount.
       if (amount) {
-        const paidKobo     = txData.amount;                           // Paystack stores in kobo/cents
+        const paidKobo     = txData.amount;
         const expectedKobo = Math.round(parseFloat(amount) * 100);
         if (paidKobo < expectedKobo) {
           console.error(`[Donation] Amount mismatch for ${reference}. Paid: ${paidKobo}, Expected: ${expectedKobo}`);
@@ -970,38 +1001,35 @@ const donationController = {
         }
       }
 
-      // ── 4. Resolve donor details — Paystack metadata is the source-of-truth ──
-      const meta                  = txData.metadata || {};
-      const resolvedDonorName     = meta.donor_name     || donor_name     || 'Anonymous';
-      const resolvedDonationType  = meta.donation_type  || donation_type  || 'offering';
-      const resolvedCustomFund    = meta.custom_fund_name || custom_fund_name || null;
-      const resolvedEmail         = txData.customer?.email || donor_email;
-      const resolvedChannel       = txData.channel       || 'paystack';
-      const resolvedAmount        = txData.amount / 100; // Convert from kobo to KES
+      const meta                 = txData.metadata || {};
+      const resolvedDonorName    = meta.donor_name      || donor_name     || 'Anonymous';
+      const resolvedDonationType = meta.donation_type   || donation_type  || 'offering';
+      const resolvedCustomFund   = meta.custom_fund_name || custom_fund_name || null;
+      const resolvedEmail        = txData.customer?.email || donor_email;
+      const resolvedChannel      = txData.channel        || 'paystack';
+      const resolvedAmount       = txData.amount / 100;
 
-      // ── 5. Persist — findOrCreate is inherently idempotent ───────────────────
       const [donation, created] = await Donation.findOrCreate({
         where: { transaction_reference: reference },
         defaults: {
-          donor_name:           resolvedDonorName,
-          donor_email:          resolvedEmail,
-          donation_type:        resolvedDonationType,
-          custom_fund_name:     resolvedCustomFund,
-          amount:               resolvedAmount,
-          payment_method:       resolvedChannel,
+          donor_name:            resolvedDonorName,
+          donor_email:           resolvedEmail,
+          donation_type:         resolvedDonationType,
+          custom_fund_name:      resolvedCustomFund,
+          amount:                resolvedAmount,
+          payment_method:        resolvedChannel,
           transaction_reference: reference,
-          status:               'success',
+          status:                'success',
         },
       });
 
-      // If a pending record already existed (e.g. from a partial earlier attempt), mark it successful.
-      if (!created && donation.status !== 'success') {
+      
+      if (!created && donation.status === 'pending') {
         await donation.update({ status: 'success' });
       }
 
       console.log(`[Donation] ✅ ${created ? 'Created' : 'Updated'} record for ref ${reference} — KES ${resolvedAmount} (${resolvedDonationType})`);
 
-      // ── 6. Real-time update for admin dashboard ───────────────────────────────
       if (req.app.get('io')) {
         req.app.get('io').emit('donations_updated');
       }
@@ -1015,79 +1043,84 @@ const donationController = {
   },
 
   webhook: async (req, res) => {
-  const secret = process.env.VITE_PAYSTACK_SECRET_KEY;
+    // FIX 2 (Critical): Corrected env var name.
+    const secret = process.env.PAYSTACK_SECRET_KEY;
 
-  // 1. CRITICAL: Prevent crash if secret is missing
-  if (!secret) {
-    console.error('❌ Webhook Error: VITE_PAYSTACK_SECRET_KEY is not defined in environment variables.');
-    return res.status(500).send('Server configuration error');
-  }
-
-  try {
-    // 2. Use rawBody if available, otherwise stringify (Raw is better for hash matching)
-    const payload = req.rawBody || JSON.stringify(req.body);
-    
-    // Create the signature hash
-    const hash = crypto
-      .createHmac('sha512', secret)
-      .update(payload)
-      .digest('hex');
-
-    // 3. Verify Signature
-    if (hash !== req.headers['x-paystack-signature']) {
-      console.warn('⚠️ Webhook Warning: Invalid signature received.');
-      return res.sendStatus(400);
+    if (!secret) {
+      console.error('❌ Webhook Error: PAYSTACK_SECRET_KEY is not defined in environment variables.');
+      return res.status(500).send('Server configuration error');
     }
 
-    const event = req.body;
-
-    // 4. Handle Successful Charge
-    if (event.event === 'charge.success') {
-      const { reference, amount, metadata, customer, channel } = event.data;
+    try {
       
-      try {
-        const [donation, created] = await Donation.findOrCreate({
-          where: { transaction_reference: reference },
-          defaults: {
-            donor_name: metadata?.donor_name || 'Anonymous',
-            donor_email: customer?.email,
-            donation_type: metadata?.donation_type || 'offering',
-            custom_fund_name: metadata?.custom_fund_name,
-            amount: amount / 100,
-            payment_method: channel,
-            status: 'success'
-          }
-        });
-
-        // Update if it existed but was pending
-        if (!created && donation.status !== 'success') {
-          await donation.update({ status: 'success' });
-        }
-
-        console.log(`✅ Webhook: Transaction ${reference} verified successfully.`);
-
-        // 5. Emit Real-time Update
-        const io = req.app.get('io');
-        if (io) {
-          io.emit('donations_updated');
-        }
-      } catch (dbError) {
-        console.error('❌ Webhook Database Error:', dbError);
-        // We still return 200 to Paystack so they stop retrying, 
-        // but we log the error for internal fixing.
+      if (!req.rawBody) {
+        console.error('❌ Webhook Error: req.rawBody is missing. Ensure the rawBody middleware is registered before this route.');
+        return res.status(500).send('Server configuration error');
       }
+
+      const payload = req.rawBody;
+
+      const hash = crypto
+        .createHmac('sha512', secret)
+        .update(payload)
+        .digest('hex');
+
+      const receivedSig = req.headers['x-paystack-signature'] || '';
+
+     
+      const hashBuf = Buffer.from(hash, 'hex');
+      const sigBuf  = Buffer.from(receivedSig, 'hex');
+      const sigValid = hashBuf.length === sigBuf.length &&
+                       crypto.timingSafeEqual(hashBuf, sigBuf);
+
+      if (!sigValid) {
+        console.warn('⚠️ Webhook Warning: Invalid signature received.');
+        return res.sendStatus(400);
+      }
+
+      const event = req.body;
+
+      if (event.event === 'charge.success') {
+        const { reference, amount, metadata, customer, channel } = event.data;
+
+        try {
+          const [donation, created] = await Donation.findOrCreate({
+            where: { transaction_reference: reference },
+            defaults: {
+              donor_name:            metadata?.donor_name || 'Anonymous',
+              donor_email:           customer?.email,
+              donation_type:         metadata?.donation_type || 'offering',
+              custom_fund_name:      metadata?.custom_fund_name,
+              amount:                amount / 100,
+              payment_method:        channel,
+              status:                'success',
+            }
+          });
+
+          if (!created && donation.status !== 'success') {
+            await donation.update({ status: 'success' });
+          }
+
+          console.log(`✅ Webhook: Transaction ${reference} verified successfully.`);
+
+          const io = req.app.get('io');
+          if (io) {
+            io.emit('donations_updated');
+          }
+        } catch (dbError) {
+          console.error('❌ Webhook Database Error:', dbError);
+          // Return 200 so Paystack stops retrying, but log for manual review.
+        }
+      }
+
+      return res.sendStatus(200);
+
+    } catch (cryptoError) {
+      console.error('❌ Webhook Processing Error:', cryptoError);
+      return res.sendStatus(500);
     }
-
-    // Always tell Paystack we received the event
-    return res.sendStatus(200);
-
-  } catch (cryptoError) {
-    console.error('❌ Webhook Processing Error:', cryptoError);
-    return res.sendStatus(500);
   }
-}
 };
-
 const mediaItemController = createController(MediaItem, 'media');
 const userController = {
   ...createController(User, 'users'),
@@ -1101,6 +1134,23 @@ const userController = {
       res.json(users);
     } catch (err) {
       console.error(`Error in User getAll:`, err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  // Override update to prevent password/token fields from being set via this route
+  update: async (req, res) => {
+    try {
+      const item = await User.findByPk(req.params.id);
+      if (!item) return res.status(404).json({ message: 'Item not found' });
+      const { password, resetPasswordToken, resetPasswordExpires, ...safeData } = req.body;
+      await item.update(safeData);
+      const updated = await User.findByPk(req.params.id, {
+        attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] }
+      });
+      if (req.app.get('io')) req.app.get('io').emit('users_updated');
+      res.json(updated);
+    } catch (err) {
+      console.error(`Error in User update:`, err);
       res.status(500).json({ message: 'Server Error' });
     }
   },
@@ -1231,7 +1281,7 @@ announcementRouter.delete('/:id', protect, admin, announcementController.delete)
 const donationRouter = express.Router();
 donationRouter.post('/webhook', donationController.webhook);           // Paystack webhook (no auth)
 donationRouter.post('/verify', donationController.verify);             // Frontend verify-and-save (public)
-donationRouter.get('/', protect, admin, donationController.getAll);    // Admin only
+donationRouter.get('/', protect,  donationController.getAll);    // Admin only
 donationRouter.post('/', donationController.create);                   // Legacy create (public)
 
 const mediaItemRouter = express.Router();
@@ -1325,6 +1375,14 @@ dmRouter.patch('/:channelId/read', protect, async (req, res) => {
 const coreRouter = express.Router();
 coreRouter.post('/send-email', async (req, res) => {
     const { to, subject, body } = req.body;
+    // Basic input validation
+    if (!to || !subject || !body) {
+      return res.status(400).json({ message: 'to, subject, and body are required.' });
+    }
+    // Validate recipient is a plausible email address
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+      return res.status(400).json({ message: 'Invalid recipient email address.' });
+    }
     try {
       const textVersion = body.replace(/<[^>]*>?/gm, ''); // Simple conversion to text
       const html = createStyledEmail(subject, body);
@@ -1656,13 +1714,19 @@ jaasRouter.post('/token', protect, async (req, res) => {
 
 app.use('/api/jaas', jaasRouter);
 
+// Legacy DM history route — prefer /api/dm/:channelId which has stricter validation.
+// Kept for backwards compatibility but now enforces channel membership.
 app.get('/api/direct-messages/:channel', protect, async (req, res) => {
   try {
     const { channel } = req.params;
+    // Enforce that the requesting user is a participant of this channel
+    if (!channel.startsWith('dm_') || !channel.includes(req.user.email)) {
+      return res.status(403).json({ message: 'Access denied to this conversation.' });
+    }
     const messages = await DirectMessage.findAll({
       where: { channel },
       order: [['created_date', 'ASC']],
-      limit: 100 // Adjust as needed
+      limit: 100
     });
     res.json(messages);
   } catch (err) {
@@ -1686,6 +1750,36 @@ const streamViewers = new Map(); // streamId -> Map<socketId, lastHeartbeatTimes
 const io = new Server(server, {
   cors: corsOptions,
 });
+
+// ---------------------------------------------------------------------------
+// Socket.IO Authentication Middleware
+// Clients must pass a valid JWT in the handshake: socket({ auth: { token } })
+// Unauthenticated connections are still allowed but socket.user will be null.
+// Admin-only events below check socket.user?.role before acting.
+// ---------------------------------------------------------------------------
+io.use(async (socket, next) => {
+  const token = socket.handshake.auth?.token || socket.handshake.headers?.authorization?.split(' ')[1];
+  if (token) {
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findByPk(decoded.id, { attributes: { exclude: ['password'] } });
+      if (user) socket.user = user;
+    } catch {
+      // Invalid token — socket continues as unauthenticated
+    }
+  }
+  next();
+});
+
+// Helper: only allow admin/pastor roles on privileged socket events
+const requireSocketAdmin = (socket, eventName) => {
+  if (!socket.user || (socket.user.role !== 'admin' && socket.user.role !== 'pastor')) {
+    console.warn(`[Socket] Unauthorized '${eventName}' attempt from socket ${socket.id}`);
+    socket.emit('error', { message: 'Not authorized.' });
+    return false;
+  }
+  return true;
+};
 
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
@@ -1723,12 +1817,14 @@ io.on('connection', (socket) => {
   socket.emit('text_overlay_update', currentTextOverlayState); // Send current text overlay to new connection
 
   socket.on('admin_update_ticker', (newState) => {
+    if (!requireSocketAdmin(socket, 'admin_update_ticker')) return;
     currentTickerState = { ...currentTickerState, ...newState };
     io.emit('ticker_update', currentTickerState); // Broadcast to all
     console.log(`Ticker updated:`, currentTickerState);
   });
 
   socket.on('admin_update_text_overlay', (newState) => {
+    if (!requireSocketAdmin(socket, 'admin_update_text_overlay')) return;
     currentTextOverlayState = { ...currentTextOverlayState, ...newState };
     io.emit('text_overlay_update', currentTextOverlayState); // Broadcast to all
     console.log(`Text overlay updated:`, newState);
@@ -1740,6 +1836,7 @@ io.on('connection', (socket) => {
   });
 
   socket.on('broadcaster', (streamId) => {
+    if (!requireSocketAdmin(socket, 'broadcaster')) return;
     if (broadcasters[streamId] && broadcasters[streamId] !== socket.id) {
       // Stream is already active by another socket
       socket.emit('stream_error', { message: 'Stream is already active by another admin.' });
@@ -1805,6 +1902,7 @@ io.on('connection', (socket) => {
 
   // Admin is online and ready for support
   socket.on('admin_listening', () => {
+    if (!requireSocketAdmin(socket, 'admin_listening')) return;
     console.log(`Admin ${socket.id} is listening for support.`);
     socket.join('admins');
     socket.emit('support_queue_update', supportQueue);
@@ -1826,6 +1924,7 @@ io.on('connection', (socket) => {
 
   // Admin accepts a chat from the queue
   socket.on('admin_accept_chat', (data) => {
+    if (!requireSocketAdmin(socket, 'admin_accept_chat')) return;
     const targetUser = data.user || data;
     const adminName = data.adminName || 'Support Admin';
 
@@ -1864,6 +1963,7 @@ io.on('connection', (socket) => {
 
   // Admin ends a chat session
   socket.on('admin_end_chat', () => {
+    if (!requireSocketAdmin(socket, 'admin_end_chat')) return;
     if (activeSupportSession && activeSupportSession.adminSocketId === socket.id) {
       const { room, userSocketId } = activeSupportSession;
       console.log(`Admin ${socket.id} ended support session in room ${room}.`);
@@ -1955,17 +2055,19 @@ io.on('connection', (socket) => {
 
   socket.on('deleteMessage', async (data) => {
     try {
-      const { messageId, userEmail } = data;
-      if (!messageId || !userEmail) {
+      const { messageId } = data;
+      if (!messageId) {
         socket.emit('deleteError', { message: 'Invalid request.' });
         return;
       }
 
-      const user = await User.findOne({ where: { email: userEmail } });
-      if (!user) {
-        socket.emit('deleteError', { message: 'User not found.' });
+      // Use server-verified identity instead of trusting the client-supplied userEmail
+      if (!socket.user) {
+        socket.emit('deleteError', { message: 'Authentication required.' });
         return;
       }
+
+      const user = socket.user;
 
       // Try to find in ChatMessage first, then DirectMessage
       let message = await ChatMessage.findByPk(messageId);
@@ -1997,8 +2099,15 @@ io.on('connection', (socket) => {
 
   socket.on('editMessage', async (data) => {
     try {
-      const { messageId, newMessage, userEmail } = data;
-      if (!messageId || !newMessage || !userEmail) return;
+      const { messageId, newMessage } = data;
+      if (!messageId || !newMessage) return;
+
+      // Use the server-verified identity — never trust a userEmail from the client payload
+      if (!socket.user) {
+        socket.emit('error', { message: 'Authentication required to edit messages.' });
+        return;
+      }
+      const userEmail = socket.user.email;
 
       let message = await ChatMessage.findByPk(messageId);
       if (!message) {
@@ -2149,16 +2258,28 @@ app.get('*', async (req, res) => {
       return res.sendFile(indexPath); // Fallback if file read fails
     }
 
+    // Escape user-sourced values before interpolating into HTML attributes
+    const escapeHtml = (str) => String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/"/g, '&quot;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;');
+
+    const safeTitle = escapeHtml(meta.title);
+    const safeDesc  = escapeHtml(meta.description);
+    const safeImage = escapeHtml(meta.image);
+    const safeUrl   = encodeURI(meta.url); // encode the URL, don't trust raw input
+
     const ogTags = `
-      <title>${meta.title}</title>
-      <meta name="description" content="${meta.description}" />
-      <meta property="og:title" content="${meta.title}" />
-      <meta property="og:description" content="${meta.description}" />
-      <meta property="og:image" content="${meta.image}" />
-      <meta property="og:url" content="${meta.url}" />
+      <title>${safeTitle}</title>
+      <meta name="description" content="${safeDesc}" />
+      <meta property="og:title" content="${safeTitle}" />
+      <meta property="og:description" content="${safeDesc}" />
+      <meta property="og:image" content="${safeImage}" />
+      <meta property="og:url" content="${safeUrl}" />
       <meta property="og:type" content="website" />
       <meta name="twitter:card" content="summary_large_image" />
-      <meta name="twitter:image" content="${meta.image}" />
+      <meta name="twitter:image" content="${safeImage}" />
     `;
 
     // Inject before the closing </head> tag
