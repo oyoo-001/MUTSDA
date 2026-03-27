@@ -853,7 +853,7 @@ const donationController = {
           path: `/transaction/verify/${encodeURIComponent(transaction_reference)}`,
           method: 'GET',
           headers: {
-            Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}`,
+            Authorization: `Bearer ${process.env.VITE_PAYSTACK_SECRET_KEY}`,
           }
         };
 

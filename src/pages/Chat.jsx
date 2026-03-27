@@ -1891,7 +1891,7 @@ function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSw
                     {dmUnread > 0 && (
                       <Badge className="h-5 px-1.5 text-xs bg-red-500 text-white">{dmUnread > 9 ? '9+' : dmUnread}</Badge>
                     )}
-                    <MessageCircle className="w-4 h-4 text-gray-400 group-hover:text-[#0084ff] transition-colors opacity-0 group-hover:opacity-100" />
+                    <MessageCircle className="w-4 h-4 text-gray-400 group-hover:text-[#0084ff] transition-colors" />
                   </div>
                 </div>
               );

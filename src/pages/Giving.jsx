@@ -54,21 +54,20 @@ export default function Giving() {
   }, []);
 
   const paystackConfig = {
-    reference: `mutsda-${Date.now()}`,
+    // Generates something like: mutsda-ln5y9z2a-8f3b
+    reference: `mutsda-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 6)}`,
     email: form.donor_email,
-    amount: parseFloat(String(form.amount || 0)) * 100, // Paystack expects amount in kobo/cents
+    amount: parseFloat(String(form.amount || 0)) * 100, 
     publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
     currency: "KES",
     channels: ["card", "mobile_money"],
-    // All donor context is baked into metadata so the backend can reconstruct
-    // the full record from the Paystack verification response alone.
     metadata: {
       donor_name: form.donor_name,
       donation_type: form.donation_type,
       custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
       custom_fields: [],
     },
-  };
+};
 
   const initializePayment = usePaystackPayment(paystackConfig);
 
