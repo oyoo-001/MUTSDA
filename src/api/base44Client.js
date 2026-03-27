@@ -39,10 +39,7 @@ api.interceptors.response.use(
 );
 
 const createEntityClient = (entityName) => ({
-  // The backend filtering is basic key-value on query params.
-  // This will handle `{ published: true }` and `{ member_email: '...' }`
   filter: (query = {}, sort = '') => {
-    // The old client had a sort param, we can ignore it as the backend has default sorting.
     return api.get(`/${entityName}`, { params: query }).then(res => res.data);
   },
   list: () => api.get(`/${entityName}`).then(res => res.data),
@@ -61,6 +58,9 @@ const createChatGroupClient = () => ({
 });
 
 export const apiClient = {
+  // Expose the raw axios instance for custom calls or debugging
+  api: api,
+  
   auth: {
     login: (credentials) => api.post('/auth/login', credentials).then(res => res.data),
     register: (userData) => api.post('/auth/register', userData).then(res => res.data),
@@ -77,7 +77,6 @@ export const apiClient = {
     },
     redirectToLogin: (returnUrl) => {
       const url = returnUrl || window.location.href;
-      // You'll need a /login route in your React app
       window.location.href = `/login?returnUrl=${encodeURIComponent(url)}`;
     }
   },
@@ -85,7 +84,7 @@ export const apiClient = {
     Core: {
       UploadFile: ({ file }) => {
         const formData = new FormData();
-        formData.append('photo', file); // Server expects 'photo' field
+        formData.append('photo', file); 
         return api.post('/auth/me/photo', formData).then(res => res.data);
       },
       SendEmail: (data) => {
@@ -102,6 +101,19 @@ export const apiClient = {
     MediaItem: createEntityClient('media'),
     ContactMessage: createEntityClient('contact'),
     RSVP: createEntityClient('rsvps'),
+    
+    // Updated DirectMessage Entity to handle DM history
+    DirectMessage: {
+      getHistory: (channelId) => {
+        // Points to dmRouter: GET /api/dm/:channelId
+        return api.get(`/dm/${channelId}`).then(res => res.data);
+      },
+      markAsRead: (channelId) => {
+        // Points to dmRouter: PATCH /api/dm/:channelId/read
+        return api.patch(`/dm/${channelId}/read`).then(res => res.data);
+      }
+    },
+
     ChatMessage: {
       ...createEntityClient('chatmessages'),
       upload: (file) => {
@@ -113,10 +125,8 @@ export const apiClient = {
     ChatGroup: createChatGroupClient(),
   },
   aiChat: {
-    // history is the current in-memory messages array from Chat.jsx state,
-    // sent so Gemini always has the exact context the user sees.
-    send:         (message, history = []) => api.post('/ai-chat', { message, history }).then(res => res.data),
-    getHistory:   ()                      => api.get('/ai-chat/history').then(res => res.data),
-    clearHistory: ()                      => api.delete('/ai-chat/history').then(res => res.data),
+    send: (message, history = []) => api.post('/ai-chat', { message, history }).then(res => res.data),
+    getHistory: () => api.get('/ai-chat/history').then(res => res.data),
+    clearHistory: () => api.delete('/ai-chat/history').then(res => res.data),
   },
 };

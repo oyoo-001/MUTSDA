@@ -910,6 +910,9 @@ const Broadcaster = ({ streamId = 'default' }) => {
         {showStopConfirmation && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
             <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border border-slate-200 animate-in fade-in zoom-in duration-200">
+              <div className="flex justify-end -mt-2 -mr-2 mb-2">
+                <button onClick={() => setShowStopConfirmation(false)} className="text-slate-400 hover:text-slate-600 transition-colors p-1"><X className="w-5 h-5" /></button>
+              </div>
               <div className="flex items-center gap-3 text-red-600 mb-4">
                 <div className="p-3 bg-red-100 rounded-full">
                   <AlertTriangle className="w-6 h-6" />

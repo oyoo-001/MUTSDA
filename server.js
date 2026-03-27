@@ -199,6 +199,60 @@ const AiChatMessage = sequelize.define('AiChatMessage', {
   session_id:  { type: DataTypes.STRING, allowNull: true }, // groups messages into one conversation session
 }, { timestamps: true, createdAt: 'created_date', updatedAt: false });
 
+// DirectMessage model — private one-to-one messages between users
+const DirectMessage = sequelize.define('DirectMessage', {
+  id: {
+    type: DataTypes.INTEGER.UNSIGNED,
+    primaryKey: true,
+    autoIncrement: true
+  },
+  sender_email: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  sender_name: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  sender_profile_photo_url: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  recipient_email: {
+    type: DataTypes.STRING,
+    allowNull: false
+  },
+  channel: {
+    type: DataTypes.STRING(512),
+    allowNull: false
+  },
+  message: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  media_url: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
+  media_type: {
+    type: DataTypes.STRING(100),
+    allowNull: true
+  },
+  media_filename: {
+    type: DataTypes.STRING(255),
+    allowNull: true
+  },
+  read: {
+    type: DataTypes.BOOLEAN,
+    defaultValue: false
+  }
+}, {
+  timestamps: true,
+  createdAt: 'created_date',
+  updatedAt: 'updated_date'
+});
+
+
 const RSVP = sequelize.define('RSVP', {
   event_id: { type: DataTypes.INTEGER, allowNull: false },
   member_email: { type: DataTypes.STRING, allowNull: false },
@@ -851,12 +905,121 @@ const donationController = {
       res.status(500).json({ message: 'Server Error during donation processing.' });
     }
   },
+  // POST /api/donations/verify — called by the frontend after a successful Paystack popup.
+  // 1. Guards against duplicate logging (idempotent via findOrCreate).
+  // 2. Re-verifies the transaction server-side with Paystack.
+  // 3. Checks that the paid amount is not less than the expected amount.
+  // 4. Extracts donor details from the transaction's metadata as the source-of-truth.
+  verify: async (req, res) => {
+    const { reference, amount, donor_name, donor_email, donation_type, custom_fund_name } = req.body;
+
+    if (!reference) {
+      return res.status(400).json({ message: "Transaction reference is required." });
+    }
+
+    try {
+      // ── 1. Duplicate guard ────────────────────────────────────────────────────
+      const existing = await Donation.findOne({ where: { transaction_reference: reference } });
+      if (existing && existing.status === 'success') {
+        console.log(`[Donation] Duplicate reference received, returning existing record: ${reference}`);
+        return res.status(200).json({ ...existing.toJSON(), duplicate: true });
+      }
+
+      // ── 2. Verify transaction with Paystack ───────────────────────────────────
+      const paystackResponse = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.paystack.co',
+          port: 443,
+          path: `/transaction/verify/${encodeURIComponent(reference)}`,
+          method: 'GET',
+          headers: {
+            Authorization: `Bearer ${process.env.VITE_PAYSTACK_SECRET_KEY}`,
+          },
+        };
+
+        const apiReq = https.request(options, apiRes => {
+          let data = '';
+          apiRes.on('data', chunk => { data += chunk; });
+          apiRes.on('end', () => {
+            try { resolve(JSON.parse(data)); }
+            catch (e) { reject(new Error("Failed to parse Paystack response")); }
+          });
+        });
+
+        apiReq.on('error', err => reject(err));
+        apiReq.end();
+      });
+
+      if (!paystackResponse.status || paystackResponse.data?.status !== 'success') {
+        console.error('[Donation] Paystack verification failed:', paystackResponse);
+        return res.status(400).json({ message: "Transaction verification failed. The payment was not confirmed by Paystack." });
+      }
+
+      const txData = paystackResponse.data;
+
+      // ── 3. Amount integrity check ─────────────────────────────────────────────
+      // Only run this check if the client supplied an expected amount.
+      if (amount) {
+        const paidKobo     = txData.amount;                           // Paystack stores in kobo/cents
+        const expectedKobo = Math.round(parseFloat(amount) * 100);
+        if (paidKobo < expectedKobo) {
+          console.error(`[Donation] Amount mismatch for ${reference}. Paid: ${paidKobo}, Expected: ${expectedKobo}`);
+          return res.status(400).json({
+            message: `Amount mismatch. Expected KES ${amount} but Paystack reported KES ${paidKobo / 100}.`
+          });
+        }
+      }
+
+      // ── 4. Resolve donor details — Paystack metadata is the source-of-truth ──
+      const meta                  = txData.metadata || {};
+      const resolvedDonorName     = meta.donor_name     || donor_name     || 'Anonymous';
+      const resolvedDonationType  = meta.donation_type  || donation_type  || 'offering';
+      const resolvedCustomFund    = meta.custom_fund_name || custom_fund_name || null;
+      const resolvedEmail         = txData.customer?.email || donor_email;
+      const resolvedChannel       = txData.channel       || 'paystack';
+      const resolvedAmount        = txData.amount / 100; // Convert from kobo to KES
+
+      // ── 5. Persist — findOrCreate is inherently idempotent ───────────────────
+      const [donation, created] = await Donation.findOrCreate({
+        where: { transaction_reference: reference },
+        defaults: {
+          donor_name:           resolvedDonorName,
+          donor_email:          resolvedEmail,
+          donation_type:        resolvedDonationType,
+          custom_fund_name:     resolvedCustomFund,
+          amount:               resolvedAmount,
+          payment_method:       resolvedChannel,
+          transaction_reference: reference,
+          status:               'success',
+        },
+      });
+
+      // If a pending record already existed (e.g. from a partial earlier attempt), mark it successful.
+      if (!created && donation.status !== 'success') {
+        await donation.update({ status: 'success' });
+      }
+
+      console.log(`[Donation] ✅ ${created ? 'Created' : 'Updated'} record for ref ${reference} — KES ${resolvedAmount} (${resolvedDonationType})`);
+
+      // ── 6. Real-time update for admin dashboard ───────────────────────────────
+      if (req.app.get('io')) {
+        req.app.get('io').emit('donations_updated');
+      }
+
+      return res.status(created ? 201 : 200).json(donation);
+
+    } catch (err) {
+      console.error('[Donation] verify error:', err);
+      return res.status(500).json({ message: 'Server error during donation verification. Please contact support.' });
+    }
+  },
+
   webhook: async (req, res) => {
-  const secret = process.env.PAYSTACK_SECRET_KEY;
+  const secret = process.env.VITE_PAYSTACK_SECRET_KEY;
 
   // 1. CRITICAL: Prevent crash if secret is missing
   if (!secret) {
-    console.error('❌ Webhook Error: PAYSTACK_SECRET_KEY is not defined in environment variables.');
+    console.error('❌ Webhook Error: VITE_PAYSTACK_SECRET_KEY is not defined in environment variables.');
     return res.status(500).send('Server configuration error');
   }
 
@@ -1066,9 +1229,10 @@ announcementRouter.put('/:id', protect, admin, announcementController.update);
 announcementRouter.delete('/:id', protect, admin, announcementController.delete);
 
 const donationRouter = express.Router();
-donationRouter.post('/webhook', donationController.webhook);
-donationRouter.get('/', protect, admin, donationController.getAll); // Admin only
-donationRouter.post('/', donationController.create); // Public
+donationRouter.post('/webhook', donationController.webhook);           // Paystack webhook (no auth)
+donationRouter.post('/verify', donationController.verify);             // Frontend verify-and-save (public)
+donationRouter.get('/', protect, admin, donationController.getAll);    // Admin only
+donationRouter.post('/', donationController.create);                   // Legacy create (public)
 
 const mediaItemRouter = express.Router();
 mediaItemRouter.get('/', mediaItemController.getAll); // Public
@@ -1114,6 +1278,49 @@ chatGroupRouter.delete('/:id', protect, admin, chatGroupController.delete);
 chatGroupRouter.post('/:id/members', protect, admin, chatGroupController.addMember);
 chatGroupRouter.delete('/:id/leave', protect, chatGroupController.leaveGroup);
 chatGroupRouter.delete('/:id/members/:userId', protect, admin, chatGroupController.removeMember);
+
+// ── Direct Message REST routes (history fetch) ─────────────────────────────
+const dmRouter = express.Router();
+
+// GET /api/dm/:channelId — fetch conversation history between two users
+dmRouter.get('/:channelId', protect, async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    // Security: ensure the requesting user is actually part of this DM channel.
+    // Channel format: dm_<email1>_<email2> where emails are sorted.
+    if (!channelId.startsWith('dm_')) {
+      return res.status(400).json({ message: 'Invalid DM channel ID.' });
+    }
+    const userEmail = req.user.email;
+    if (!channelId.includes(userEmail)) {
+      return res.status(403).json({ message: 'Access denied to this conversation.' });
+    }
+
+    const messages = await DirectMessage.findAll({
+      where: { channel: channelId },
+      order: [['created_date', 'ASC']],
+      limit: 100,
+    });
+    res.json(messages);
+  } catch (err) {
+    console.error('[DM] fetch error:', err);
+    res.status(500).json({ message: 'Failed to load messages.' });
+  }
+});
+
+// PATCH /api/dm/:channelId/read — mark messages as read
+dmRouter.patch('/:channelId/read', protect, async (req, res) => {
+  try {
+    const { channelId } = req.params;
+    await DirectMessage.update(
+      { read: true },
+      { where: { channel: channelId, recipient_email: req.user.email, read: false } }
+    );
+    res.json({ message: 'Marked as read.' });
+  } catch (err) {
+    res.status(500).json({ message: 'Failed to mark as read.' });
+  }
+});
 
 const coreRouter = express.Router();
 coreRouter.post('/send-email', async (req, res) => {
@@ -1227,7 +1434,7 @@ aiChatRouter.post('/', protect, async (req, res) => {
     // 3. System instruction
     const systemInstruction = {
       parts: [{
-        text: `You are "Faith AI", a warm, wise, and compassionate spiritual companion for members of the MUTSDA Seventh-day Adventist Church community.
+        text: `You are "MUTSDA AI", a warm, wise, and compassionate spiritual companion for members of the MUTSDA Seventh-day Adventist Church community.
 
 Your purpose is to:
 • Guide users through Bible questions with clear, scripture-backed answers (always cite chapter and verse)
@@ -1251,7 +1458,7 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
     };
 
     // 4. Call Gemini API
-    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${geminiApiKey}`;
+    const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
     
     const geminiBody = {
       system_instruction: systemInstruction,
@@ -1261,7 +1468,7 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
       ],
       generationConfig: {
         temperature: 0.7,
-        maxOutputTokens: 800,
+        maxOutputTokens: 2048,
       },
       safetySettings: [
         { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
@@ -1319,6 +1526,7 @@ app.use('/api/users', userRouter);
 app.use('/api/rsvps', rsvpRouter);
 app.use('/api/chatmessages', chatRouter);
 app.use('/api/chat-groups', chatGroupRouter);
+app.use('/api/dm', protect, dmRouter);
 app.use('/api/core', protect, admin, coreRouter);
 app.use('/api/ai-chat', aiChatRouter);
 
@@ -1448,7 +1656,20 @@ jaasRouter.post('/token', protect, async (req, res) => {
 
 app.use('/api/jaas', jaasRouter);
 
-
+app.get('/api/direct-messages/:channel', protect, async (req, res) => {
+  try {
+    const { channel } = req.params;
+    const messages = await DirectMessage.findAll({
+      where: { channel },
+      order: [['created_date', 'ASC']],
+      limit: 100 // Adjust as needed
+    });
+    res.json(messages);
+  } catch (err) {
+    console.error("Error fetching DM history:", err);
+    res.status(500).json({ message: "Could not load messages" });
+  }
+});
 // -----------------------------------------------------------------------------
 // 9. SOCKET.IO for Live Chat
 // -----------------------------------------------------------------------------
@@ -1675,24 +1896,55 @@ io.on('connection', (socket) => {
   socket.on('sendMessage', async (data) => {
     try {
       if (data.channel && data.channel.startsWith('support_')) {
+        // Support chat
         const message = { ...data, created_date: new Date() };
         io.to(data.channel).emit('newMessage', message);
-        await ChatMessage.create(data); // Save support message to DB
-      } else {
-        // General community chat
+        await ChatMessage.create(data);
+
+      } else if (data.channel && data.channel.startsWith('dm_')) {
+        // ── Private Direct Message ──────────────────────────────────────────
+        // Derive the recipient email from the channel key
+        // Channel format: dm_<emailA>_<emailB> (sorted). We already know sender.
+        const channelParts = data.channel.replace('dm_', '').split('_');
+        // The channel is formed by sorting two emails — find the other one
+        // Simple approach: strip sender_email prefix/suffix to get recipient
+        const recipientEmail = [data.sender_email].reduce((acc, se) => {
+          // Remove sender email from the channel string to get recipient
+          const withoutPrefix = data.channel.replace('dm_', '');
+          // Both emails are joined, sorted. Split on the sender email.
+          if (withoutPrefix.startsWith(se + '_')) return withoutPrefix.slice(se.length + 1);
+          if (withoutPrefix.endsWith('_' + se)) return withoutPrefix.slice(0, withoutPrefix.length - se.length - 1);
+          return acc;
+        }, '');
+
         const { replyTo, ...messageData } = data;
+        const payload = {
+          ...messageData,
+          recipient_email: recipientEmail
+        };
+
         if (replyTo && replyTo.id) {
-            messageData.reply_to_message_id = replyTo.id;
-            messageData.reply_to_sender_name = replyTo.sender_name;
-            
-            let snippet = replyTo.message;
-            if (snippet && snippet.length > 120) {
-                snippet = snippet.substring(0, 117) + '...';
-            }
-            // Use filename for media snippet, fallback to 'Attachment'
-            messageData.reply_to_message_snippet = snippet || (replyTo.media_url ? (replyTo.media_filename || 'Attachment') : '');
+          payload.reply_to_message_id = replyTo.id;
+          payload.reply_to_sender_name = replyTo.sender_name;
+          let snippet = replyTo.message;
+          if (snippet && snippet.length > 120) snippet = snippet.substring(0, 117) + '...';
+          payload.reply_to_message_snippet = snippet || (replyTo.media_url ? (replyTo.media_filename || 'Attachment') : '');
         }
 
+        const dmRecord = await DirectMessage.create(payload);
+
+        io.to(data.channel).emit('newMessage', dmRecord);
+
+      } else {
+        // General / group community chat
+        const { replyTo, ...messageData } = data;
+        if (replyTo && replyTo.id) {
+          messageData.reply_to_message_id = replyTo.id;
+          messageData.reply_to_sender_name = replyTo.sender_name;
+          let snippet = replyTo.message;
+          if (snippet && snippet.length > 120) snippet = snippet.substring(0, 117) + '...';
+          messageData.reply_to_message_snippet = snippet || (replyTo.media_url ? (replyTo.media_filename || 'Attachment') : '');
+        }
         const message = await ChatMessage.create(messageData);
         io.to(data.channel || 'general').emit('newMessage', message);
       }
@@ -1715,16 +1967,25 @@ io.on('connection', (socket) => {
         return;
       }
 
-      const message = await ChatMessage.findByPk(messageId);
+      // Try to find in ChatMessage first, then DirectMessage
+      let message = await ChatMessage.findByPk(messageId);
+      let model = ChatMessage;
+
       if (!message) {
-        return; // Message already deleted, do nothing.
+        message = await DirectMessage.findByPk(messageId);
+        model = DirectMessage;
       }
+
+      if (!message) return;
 
       const canDelete = user.role === 'admin' || user.email === message.sender_email;
 
       if (canDelete) {
         await message.destroy();
-        io.to(message.channel).emit('messageDeleted', { messageId: message.id, channel: message.channel });
+        io.to(message.channel).emit('messageDeleted', { 
+          messageId: message.id, 
+          channel: message.channel 
+        });
       } else {
         socket.emit('deleteError', { message: 'You do not have permission to delete this message.' });
       }
@@ -1739,7 +2000,11 @@ io.on('connection', (socket) => {
       const { messageId, newMessage, userEmail } = data;
       if (!messageId || !newMessage || !userEmail) return;
 
-      const message = await ChatMessage.findByPk(messageId);
+      let message = await ChatMessage.findByPk(messageId);
+      if (!message) {
+        message = await DirectMessage.findByPk(messageId);
+      }
+      
       if (!message) return;
 
       // Check if user is the sender
@@ -1749,7 +2014,11 @@ io.on('connection', (socket) => {
       }
 
       await message.update({ message: newMessage });
-      io.to(message.channel).emit('messageUpdated', { id: message.id, message: newMessage, channel: message.channel });
+      io.to(message.channel).emit('messageUpdated', { 
+        id: message.id, 
+        message: newMessage, 
+        channel: message.channel 
+      });
     } catch (err) {
       console.error('Socket editMessage error:', err);
     }

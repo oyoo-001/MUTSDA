@@ -3,12 +3,16 @@ import { apiClient } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Badge } from "@/components/ui/badge"; // Added this
+import { Badge } from "@/components/ui/badge";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Heart, CreditCard, Smartphone, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { usePaystackPayment } from "react-paystack";
+
+// Resolve the backend base URL from the Vite env, falling back to the
+// current origin so the call works in both dev (proxy) and production.
+const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
 
 const donationTypes = [
   { value: "tithe", label: "Tithe", desc: "Return God's faithful tenth" },
@@ -53,35 +57,57 @@ export default function Giving() {
     reference: `mutsda-${Date.now()}`,
     email: form.donor_email,
     amount: parseFloat(String(form.amount || 0)) * 100, // Paystack expects amount in kobo/cents
-    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY, // Ensure this is in your .env file
+    publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
     currency: "KES",
     channels: ["card", "mobile_money"],
+    // All donor context is baked into metadata so the backend can reconstruct
+    // the full record from the Paystack verification response alone.
     metadata: {
       donor_name: form.donor_name,
       donation_type: form.donation_type,
-      custom_fund_name: form.custom_fund_name,
-    }
+      custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
+      custom_fields: [],
+    },
   };
 
   const initializePayment = usePaystackPayment(paystackConfig);
 
+  // Called by the Paystack hook only after the popup confirms a successful charge.
+  // We then ask our own backend to re-verify the transaction with Paystack and
+  // persist it — this is the authoritative write to the database.
   const onPaystackSuccess = async (reference) => {
     setSubmitting(true);
     try {
-      await apiClient.entities.Donation.create({
-        donor_name: form.donor_name,
-        donor_email: form.donor_email,
-        donation_type: form.donation_type,
-        custom_fund_name: form.donation_type === 'custom' ? form.custom_fund_name : undefined,
-        amount: parseFloat(form.amount),
-        payment_method: reference.channel || 'paystack',
-        transaction_reference: reference.reference,
+      const res = await fetch(`${API_BASE}/api/donations/verify`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          reference:        reference.reference,
+          amount:           parseFloat(form.amount),
+          donor_name:       form.donor_name,
+          donor_email:      form.donor_email,
+          donation_type:    form.donation_type,
+          custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
+        }),
       });
-      
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        // The payment went through with Paystack but our backend rejected it
+        // (e.g. amount mismatch). Show a specific error so the user can contact support.
+        throw new Error(data.message || "Failed to record donation. Please contact support.");
+      }
+
+      // Backend confirmed — show the Thank You screen.
       setDone(true);
-      toast.success("Thank you for your generous giving!");
+      toast.success("Thank you for your generous giving! 🙏");
     } catch (err) {
-      toast.error(err.message || "Failed to record donation after payment. Please contact support.");
+      console.error("[Giving] verify error:", err);
+      toast.error(
+        err.message ||
+          "Your payment was received, but we could not record it automatically. Please contact support with your transaction reference."
+      );
     } finally {
       setSubmitting(false);
     }
@@ -93,7 +119,7 @@ export default function Giving() {
       toast.error("Please enter a valid amount");
       return;
     }
-    initializePayment(onPaystackSuccess, () => toast.info("Payment window closed."));
+    initializePayment({ onSuccess: onPaystackSuccess, onClose: () => toast.info("Payment window closed.") });
   };
 
   if (done) {

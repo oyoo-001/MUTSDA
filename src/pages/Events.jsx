@@ -12,7 +12,7 @@ import {
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
-import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Share2 } from "lucide-react";
+import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Share2, X } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -620,6 +620,10 @@ export default function Events() {
                 </svg>
               )}
               {isFullscreen ? "Exit Fullscreen" : "Fullscreen"}
+            </Button>
+            
+            <Button variant="ghost" size="icon" onClick={() => setActiveMeeting(null)} className="text-white/70 hover:text-white hover:bg-white/10 rounded-full">
+              <X className="w-5 h-5" />
             </Button>
           </div>
 
