@@ -17,12 +17,20 @@ import { Resend } from 'resend';
 import { OAuth2Client } from 'google-auth-library';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
+import webPush from 'web-push';
 
 dotenv.config();
 
 // -----------------------------------------------------------------------------
 // 2. APP INITIALIZATION & MIDDLEWARE
 // -----------------------------------------------------------------------------
+
+// Initialize Web Push with VAPID details
+webPush.setVapidDetails(
+  `mailto:${process.env.FROM_EMAIL || 'admin@mutsda.org'}`,
+  process.env.VAPID_PUBLIC_KEY,
+  process.env.VAPID_PRIVATE_KEY
+);
 
 const app = express();
 const server = http.createServer(app);
@@ -123,6 +131,10 @@ const User = sequelize.define('User', {
   emergency_contact: DataTypes.STRING,
   resetPasswordToken: DataTypes.STRING,
   resetPasswordExpires: DataTypes.DATE,
+  push_subscription: DataTypes.TEXT, // Store JSON string of push subscription
+  push_notifications_enabled: { type: DataTypes.BOOLEAN, defaultValue: true },
+  is_banned: { type: DataTypes.BOOLEAN, defaultValue: false },
+  last_active: DataTypes.DATE,
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
 const Sermon = sequelize.define('Sermon', {
@@ -136,6 +148,23 @@ const Sermon = sequelize.define('Sermon', {
   notes_pdf_url: DataTypes.STRING,
   thumbnail_url: DataTypes.STRING,
   published: { type: DataTypes.BOOLEAN, defaultValue: true },
+}, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
+
+const SermonView = sequelize.define('SermonView', {
+  sermon_id: { type: DataTypes.INTEGER, allowNull: false },
+  user_id: { type: DataTypes.INTEGER, allowNull: true },
+}, { timestamps: true, createdAt: 'created_date', updatedAt: false });
+
+const SermonLike = sequelize.define('SermonLike', {
+  sermon_id: { type: DataTypes.INTEGER, allowNull: false },
+  user_id: { type: DataTypes.INTEGER, allowNull: false },
+}, { timestamps: true, createdAt: 'created_date', updatedAt: false });
+
+const SermonComment = sequelize.define('SermonComment', {
+  sermon_id: { type: DataTypes.INTEGER, allowNull: false },
+  user_id: { type: DataTypes.INTEGER, allowNull: false },
+  content: { type: DataTypes.TEXT, allowNull: false },
+  parent_id: { type: DataTypes.INTEGER, allowNull: true },
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
 const Event = sequelize.define('Event', {
@@ -281,6 +310,9 @@ const RSVP = sequelize.define('RSVP', {
 User.belongsToMany(ChatGroup, { through: 'ChatGroupMembers' });
 ChatGroup.belongsToMany(User, { through: 'ChatGroupMembers' });
 
+SermonComment.belongsTo(User, { foreignKey: 'user_id', as: 'User' });
+SermonComment.hasMany(SermonComment, { as: 'Replies', foreignKey: 'parent_id' });
+
 // -----------------------------------------------------------------------------
 // 5. MIDDLEWARE (from /middleware)
 // -----------------------------------------------------------------------------
@@ -315,6 +347,10 @@ const protect = async (req, res, next) => {
       req.user = await User.findByPk(decoded.id, {
         attributes: { exclude: ['password'] }
       });
+
+      if (req.user && req.user.is_banned) {
+        return res.status(403).json({ message: 'Your account has been suspended.' });
+      }
 
       // FIX: If the token is valid but the user was deleted/not found
       if (!req.user) {
@@ -530,6 +566,10 @@ const authController = {
     try {
       const user = await User.findOne({ where: { email } });
       if (user && (await bcrypt.compare(password, user.password))) {
+        if (user.is_banned) {
+          return res.status(403).json({ message: 'Your account has been suspended. Please contact administration.' });
+        }
+
         res.json({
           id: user.id,
           full_name: user.full_name,
@@ -555,6 +595,10 @@ const authController = {
       const { name, email, picture } = ticket.getPayload();
 
       let user = await User.findOne({ where: { email } });
+
+      if (user && user.is_banned) {
+        return res.status(403).json({ message: 'Your account has been suspended.' });
+      }
 
       if (!user) {
         // Create new user if they don't exist
@@ -596,7 +640,7 @@ const authController = {
       if (user) {
         // Whitelist only the fields a user may update on their own profile.
         // Never allow role, email, password, or reset tokens to be changed here.
-        const ALLOWED_FIELDS = ['full_name', 'phone', 'address', 'date_of_birth',  'emergency_contact'];
+        const ALLOWED_FIELDS = ['full_name', 'phone', 'address', 'date_of_birth', 'emergency_contact', 'push_notifications_enabled'];
         const updateData = {};
         for (const field of ALLOWED_FIELDS) {
           if (req.body[field] !== undefined) updateData[field] = req.body[field];
@@ -795,8 +839,26 @@ const sermonController = {
   ...createController(Sermon, 'sermons'),
   getAll: async (req, res) => { // Override to only show published
     try {
+      let userId = null;
+      if (req.headers.authorization?.startsWith('Bearer')) {
+        try {
+          const token = req.headers.authorization.split(' ')[1];
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          userId = decoded.id;
+        } catch (e) {}
+      }
+
       const sermons = await Sermon.findAll({
         where: { published: true },
+        attributes: {
+          include: [
+            [sequelize.literal('(SELECT COUNT(*) FROM SermonViews WHERE SermonViews.sermon_id = Sermon.id)'), 'views_count'],
+            [sequelize.literal('(SELECT COUNT(*) FROM SermonLikes WHERE SermonLikes.sermon_id = Sermon.id)'), 'likes_count'],
+            [sequelize.literal('(SELECT COUNT(*) FROM SermonComments WHERE SermonComments.sermon_id = Sermon.id)'), 'comments_count'],
+            userId ? [sequelize.literal(`(SELECT COUNT(*) FROM SermonLikes WHERE SermonLikes.sermon_id = Sermon.id AND SermonLikes.user_id = ${userId})`), 'is_liked'] 
+                   : [sequelize.literal('0'), 'is_liked']
+          ]
+        },
         order: [['sermon_date', 'DESC']]
       });
       res.json(sermons);
@@ -805,6 +867,60 @@ const sermonController = {
       res.status(500).json({ message: 'Server Error' });
     }
   },
+  recordView: async (req, res) => {
+    try {
+      let userId = null;
+      if (req.headers.authorization?.startsWith('Bearer')) {
+        try {
+          const token = req.headers.authorization.split(' ')[1];
+          const decoded = jwt.verify(token, process.env.JWT_SECRET);
+          userId = decoded.id;
+        } catch (e) {}
+      }
+      await SermonView.create({ sermon_id: req.params.id, user_id: userId });
+      
+      if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'view' });
+      
+      res.status(204).send();
+    } catch (err) { res.status(500).json({ message: 'Server Error' }); }
+  },
+  toggleLike: async (req, res) => {
+    try {
+      const existing = await SermonLike.findOne({ where: { sermon_id: req.params.id, user_id: req.user.id } });
+      if (existing) { 
+        await existing.destroy(); 
+        if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'like' });
+        return res.json({ liked: false }); 
+      }
+      await SermonLike.create({ sermon_id: req.params.id, user_id: req.user.id });
+      
+      if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'like' });
+      
+      res.json({ liked: true });
+    } catch (err) { res.status(500).json({ message: 'Server Error' }); }
+  },
+  getComments: async (req, res) => {
+    try {
+      const comments = await SermonComment.findAll({
+        where: { sermon_id: req.params.id, parent_id: null },
+        include: [
+          { model: User, as: 'User', attributes: ['full_name', 'profile_photo_url'] },
+          { model: SermonComment, as: 'Replies', include: [{ model: User, as: 'User', attributes: ['full_name', 'profile_photo_url'] }] }
+        ],
+        order: [['created_date', 'DESC']]
+      });
+      res.json(comments);
+    } catch (err) { res.status(500).json({ message: 'Server Error' }); }
+  },
+  postComment: async (req, res) => {
+    try {
+      const comment = await SermonComment.create({ sermon_id: req.params.id, user_id: req.user.id, content: req.body.content, parent_id: req.body.parent_id || null });
+      
+      if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'comment' });
+      
+      res.status(201).json(comment);
+    } catch (err) { res.status(500).json({ message: 'Server Error' }); }
+  }
 };
 
 const eventController = {
@@ -1144,6 +1260,18 @@ const userController = {
       if (!item) return res.status(404).json({ message: 'Item not found' });
       const { password, resetPasswordToken, resetPasswordExpires, ...safeData } = req.body;
       await item.update(safeData);
+
+      // REAL-TIME BAN ENFORCEMENT: Kick the user immediately if they are banned
+      if (safeData.is_banned === true && req.app.get('io')) {
+        const io = req.app.get('io');
+        for (const [id, s] of io.sockets.sockets) {
+          if (s.user && s.user.id === item.id) {
+            s.emit('account_suspended', { message: 'Your account has been suspended by an administrator.' });
+            s.disconnect(true);
+          }
+        }
+      }
+
       const updated = await User.findByPk(req.params.id, {
         attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] }
       });
@@ -1156,7 +1284,27 @@ const userController = {
   },
 };
 const rsvpController = createController(RSVP, 'rsvps');
-const chatMessageController = createController(ChatMessage, 'chat');
+const chatMessageController = {
+  ...createController(ChatMessage, 'chat'),
+  getAll: async (req, res) => {
+    try {
+      const { channel } = req.query;
+      // If a channel is specified, filter by it. Otherwise, return nothing or default to general.
+      // This prevents support_ messages from leaking into the 'general' history fetch.
+      const where = channel ? { channel } : { channel: 'general' };
+      
+      const items = await ChatMessage.findAll({ 
+        where,
+        order: [['created_date', 'DESC']],
+        limit: 100 
+      });
+      res.json(items);
+    } catch (err) {
+      console.error(`Error in ChatMessage getAll:`, err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+};
 
 const chatGroupController = {
   ...createController(ChatGroup, 'chat-groups'),
@@ -1226,6 +1374,56 @@ const chatGroupController = {
   },
 };
 
+const pushController = {
+  subscribe: async (req, res) => {
+    try {
+      const user = await User.findByPk(req.user.id);
+      if (!user) return res.status(404).json({ message: 'User not found' });
+      
+      await user.update({ push_subscription: JSON.stringify(req.body) });
+      res.status(200).json({ message: 'Push subscription saved' });
+    } catch (err) {
+      console.error('Push Subscribe Error:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  test: async (req, res) => {
+    try {
+      await sendPushToUser(req.user.id, {
+        title: '🔔 MUTSDA Test',
+        body: 'Hallelujah! Your push notifications are now active and working correctly.',
+        url: '/memberprofile'
+      });
+      res.status(200).json({ message: 'Test notification sent' });
+    } catch (err) {
+      console.error('Push Test Error:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  }
+};
+
+/**
+ * Reusable helper to send push notifications.
+ * Automatically clears push_subscription from the User record if the endpoint is dead.
+ */
+const sendPushToUser = async (userId, payload) => {
+  try {
+    const user = await User.findByPk(userId);
+    if (!user || !user.push_subscription || !user.push_notifications_enabled) return;
+
+    const subscription = JSON.parse(user.push_subscription);
+    await webPush.sendNotification(subscription, JSON.stringify(payload));
+  } catch (err) {
+    // 404 (Not Found) or 410 (Gone) status codes mean the subscription is no longer valid
+    if (err.statusCode === 404 || err.statusCode === 410) {
+      console.log(`[Push] Subscription for user ${userId} is dead. Cleaning up...`);
+      await User.update({ push_subscription: null }, { where: { id: userId } });
+    } else {
+      console.error(`[Push] Unexpected error for user ${userId}:`, err.message);
+    }
+  }
+};
+
 // -----------------------------------------------------------------------------
 // 7. API ROUTES (from /routes)
 // -----------------------------------------------------------------------------
@@ -1257,10 +1455,16 @@ authRouter.get('/me', protect, authController.getMe);
 authRouter.post('/forgot-password', authController.forgotPassword);
 authRouter.post('/verify-otp', authController.verifyOtp);
 authRouter.post('/reset-password', authController.resetPassword);
+authRouter.post('/push-subscribe', protect, pushController.subscribe);
+authRouter.post('/push-test', protect, pushController.test);
 
 const sermonRouter = express.Router();
 sermonRouter.get('/', sermonController.getAll); // Public
 sermonRouter.get('/:id', sermonController.getById); // Public
+sermonRouter.post('/:id/view', sermonController.recordView); 
+sermonRouter.post('/:id/like', protect, sermonController.toggleLike);
+sermonRouter.get('/:id/comments', sermonController.getComments);
+sermonRouter.post('/:id/comments', protect, sermonController.postComment);
 sermonRouter.post('/', protect, admin, sermonController.create);
 sermonRouter.put('/:id', protect, admin, sermonController.update);
 sermonRouter.delete('/:id', protect, admin, sermonController.delete);
@@ -1739,7 +1943,7 @@ app.get('/api/direct-messages/:channel', protect, async (req, res) => {
 // -----------------------------------------------------------------------------
 
 const supportQueue = []; // Array of { id, name, email, socketId }
-let activeSupportSession = null; // { adminSocketId, userSocketId, room, user }
+let activeSupportSessions = []; // Array of { adminSocketId, userSocketId, room, user }
 const onlineUsers = new Map(); // Map<socket.id, userObject>
 let currentTickerState = { message: "", textColor: "#1a2744", backgroundColor: "#c8a951", speed: 95 }; // Store the active news ticker message and color
 let currentTextOverlayState = { text: "", fontSize: 32, isVisible: false, isFullScreen: false, backgroundImage: "", backgroundColor: "#1a2744", backgroundOpacity: 0.8 }; // Store text overlay state
@@ -1763,7 +1967,11 @@ io.use(async (socket, next) => {
     try {
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
       const user = await User.findByPk(decoded.id, { attributes: { exclude: ['password'] } });
-      if (user) socket.user = user;
+      if (user) {
+        // Refuse connection if user is already banned
+        if (user.is_banned) return next(new Error('Account suspended'));
+        socket.user = user;
+      }
     } catch {
       // Invalid token — socket continues as unauthenticated
     }
@@ -1923,10 +2131,13 @@ io.on('connection', (socket) => {
 
   // User requests live support
   socket.on('request_support', (user) => {
-    if (activeSupportSession) {
-      socket.emit('admin_busy');
+    // Check if any admin is actually online
+    const adminRoom = io.sockets.adapter.rooms.get('admins');
+    if (!adminRoom || adminRoom.size === 0) {
+      socket.emit('error', { message: 'No administrators are currently online. Please try again later or leave a message.' });
     }
-    // Avoid adding duplicates
+
+    // Avoid adding duplicates to the queue
     if (!supportQueue.some(u => u.id === user.id)) {
       console.log(`User ${user.name} (${socket.id}) requested support.`);
       supportQueue.push({ ...user, socketId: socket.id });
@@ -1940,11 +2151,6 @@ io.on('connection', (socket) => {
     const targetUser = data.user || data;
     const adminName = data.adminName || 'Support Admin';
 
-    if (activeSupportSession) {
-      socket.emit('error', { message: 'Another support session is already active.' });
-      return;
-    }
-
     const userIndex = supportQueue.findIndex(u => u.socketId === targetUser.socketId);
     const userToChat = supportQueue[userIndex];
 
@@ -1952,12 +2158,13 @@ io.on('connection', (socket) => {
       supportQueue.splice(userIndex, 1);
       
       const room = `support_${userToChat.id}`;
-      activeSupportSession = {
+      const newSession = {
         adminSocketId: socket.id,
         userSocketId: userToChat.socketId,
         room: room,
         user: userToChat
       };
+      activeSupportSessions.push(newSession);
 
       const userSocket = io.sockets.sockets.get(userToChat.socketId);
       if (userSocket) {
@@ -1975,22 +2182,26 @@ io.on('connection', (socket) => {
 
   // Admin ends a chat session
   socket.on('admin_end_chat', () => {
-    if (activeSupportSession && activeSupportSession.adminSocketId === socket.id) {
-      const { room, userSocketId } = activeSupportSession;
+    const sessionIndex = activeSupportSessions.findIndex(s => s.adminSocketId === socket.id);
+    if (sessionIndex !== -1) {
+      const { room, userSocketId } = activeSupportSessions[sessionIndex];
       console.log(`Admin ${socket.id} ended support session in room ${room}.`);
       
       io.to(room).emit('support_session_ended', { message: 'The admin has ended the chat session.' });
       
       const userSocket = io.sockets.sockets.get(userSocketId);
-      if(userSocket) userSocket.leave(room);
+      if (userSocket) userSocket.leave(room);
       socket.leave(room);
 
-      activeSupportSession = null;
+      activeSupportSessions.splice(sessionIndex, 1);
     }
   });
 
   socket.on('i_am_online', (user) => {
     if (user) {
+      // Update last active status in DB
+      User.update({ last_active: new Date() }, { where: { id: user.id } }).catch(() => {});
+
       onlineUsers.set(socket.id, {
         id: user.id,
         name: user.full_name,
@@ -2190,19 +2401,19 @@ io.on('connection', (socket) => {
       }
     });
 
-    if (activeSupportSession) {
-      const { room, userSocketId, adminSocketId } = activeSupportSession;
-      if (socket.id === userSocketId || socket.id === adminSocketId) {
-        const endMessage = socket.id === userSocketId ? 'The user has disconnected.' : 'The admin has disconnected.';
-        io.to(room).emit('support_session_ended', { message: endMessage });
-        
-        const userSocket = io.sockets.sockets.get(userSocketId);
-        const adminSocket = io.sockets.sockets.get(adminSocketId);
-        if(userSocket) userSocket.leave(room);
-        if(adminSocket) adminSocket.leave(room);
-        activeSupportSession = null;
-        console.log(`Support session in room ${room} ended due to disconnect.`);
-      }
+    // Cleanup plural sessions
+    const sessionIndex = activeSupportSessions.findIndex(s => s.userSocketId === socket.id || s.adminSocketId === socket.id);
+    if (sessionIndex !== -1) {
+      const session = activeSupportSessions[sessionIndex];
+      const endMessage = socket.id === session.userSocketId ? 'The user has disconnected.' : 'The admin has disconnected.';
+      io.to(session.room).emit('support_session_ended', { message: endMessage });
+      
+      const uSocket = io.sockets.sockets.get(session.userSocketId);
+      const aSocket = io.sockets.sockets.get(session.adminSocketId);
+      if (uSocket) uSocket.leave(session.room);
+      if (aSocket) aSocket.leave(session.room);
+      activeSupportSessions.splice(sessionIndex, 1);
+      console.log(`Support session in room ${session.room} ended due to disconnect.`);
     }
   });
 });

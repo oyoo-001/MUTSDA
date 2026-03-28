@@ -11,9 +11,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Badge } from "@/components/ui/badge";
 import {
-  User, Phone, MapPin, Calendar, Heart, DollarSign, Lock,
-  Edit, Save, Upload, ChevronRight
-} from "lucide-react";
+  User, Phone, MapPin, Calendar, Heart, DollarSign, Lock, Edit, Save, Upload, ChevronRight, Bell, Send} from "lucide-react";
+import { Loader2 } from "lucide-react";
+import { Switch } from "@/components/ui/switch";
 import { toast } from "sonner";
 
 export default function MemberProfile() {
@@ -23,6 +23,7 @@ export default function MemberProfile() {
   const [saving, setSaving] = useState(false);
   const [passwordForm, setPasswordForm] = useState({ current: "", new: "", confirm: "" });
   const [changingPassword, setChangingPassword] = useState(false);
+  const [testingPush, setTestingPush] = useState(false);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -106,6 +107,31 @@ export default function MemberProfile() {
     }
   };
 
+  const handleTogglePush = async (enabled) => {
+    try {
+      await apiClient.auth.updateMe({ push_notifications_enabled: enabled });
+      setUser(prev => ({ ...prev, push_notifications_enabled: enabled }));
+      toast.success(`Notifications ${enabled ? 'enabled' : 'disabled'}`);
+    } catch (err) {
+      toast.error("Failed to update notification settings");
+    }
+  };
+
+  const handleTestPush = async () => {
+    setTestingPush(true);
+    try {
+      const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+      await axios.post('/api/auth/push-test', {}, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      toast.success("Test notification triggered!");
+    } catch (error) {
+      toast.error(error.response?.data?.message || "Failed to trigger test notification");
+    } finally {
+      setTestingPush(false);
+    }
+  };
+
   if (!user) {
     return <div className="flex items-center justify-center min-h-[60vh]">
       <div className="animate-pulse text-gray-400">Loading...</div>
@@ -158,6 +184,7 @@ const totalGiving = donations.reduce((s, d) => s + parseFloat(d.amount || 0), 0)
             <TabsTrigger value="profile">Profile</TabsTrigger>
             <TabsTrigger value="giving">Giving History</TabsTrigger>
             <TabsTrigger value="events">My RSVPs</TabsTrigger>
+            <TabsTrigger value="notifications">Notifications</TabsTrigger>
             <TabsTrigger value="security">Security</TabsTrigger>
           </TabsList>
 
@@ -277,6 +304,44 @@ const totalGiving = donations.reduce((s, d) => s + parseFloat(d.amount || 0), 0)
                     ))}
                   </div>
                 )}
+              </CardContent>
+            </Card>
+          </TabsContent>
+
+          <TabsContent value="notifications">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Bell className="w-5 h-5" /> Push Notifications
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                <div className="flex items-center justify-between p-4 bg-slate-50 rounded-xl border border-slate-100">
+                  <div className="space-y-0.5">
+                    <Label className="text-base">Enable Notifications</Label>
+                    <p className="text-sm text-muted-foreground font-normal">
+                      Receive updates about announcements, sermons, and messages even when the app is closed.
+                    </p>
+                  </div>
+                  <Switch 
+                    checked={user.push_notifications_enabled !== false} 
+                    onCheckedChange={handleTogglePush} 
+                  />
+                </div>
+
+                <div className="space-y-4">
+                  <h4 className="text-sm font-semibold">Test Connection</h4>
+                  <p className="text-sm text-gray-500">Verify that your device is correctly registered to receive church alerts.</p>
+                  <Button 
+                    variant="outline" 
+                    onClick={handleTestPush} 
+                    disabled={testingPush || user.push_notifications_enabled === false}
+                    className="gap-2"
+                  >
+                    {testingPush ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                    Send Test Notification
+                  </Button>
+                </div>
               </CardContent>
             </Card>
           </TabsContent>

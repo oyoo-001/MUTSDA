@@ -83,10 +83,41 @@ export default function Layout({ children, currentPageName }) {
 
   // Global Real-time Notifications & Data Refresh
   useEffect(() => {
-    // Request permission for system notifications
-    if ("Notification" in window && Notification.permission !== "granted") {
-      Notification.requestPermission();
-    }
+    const setupPush = async () => {
+      if ("serviceWorker" in navigator && user) {
+        try {
+          const registration = await navigator.serviceWorker.ready;
+          
+          // If user opted out, remove existing browser subscription
+          if (user.push_notifications_enabled === false) {
+            const existingSub = await registration.pushManager.getSubscription();
+            if (existingSub) await existingSub.unsubscribe();
+            return;
+          }
+
+          const permission = await Notification.requestPermission();
+          
+          if (permission === "granted") {
+            const subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: import.meta.env.VITE_VAPID_PUBLIC_KEY
+            });
+
+            await fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/auth/push-subscribe`, {
+              method: 'POST',
+              headers: { 
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('token') || localStorage.getItem('auth_token')}`
+              },
+              body: JSON.stringify(subscription)
+            });
+          }
+        } catch (err) {
+          console.warn("Push subscription failed:", err);
+        }
+      }
+    };
+    setupPush();
 
     const socket = io(SOCKET_URL, { transports: ["websocket"] });
     const icon = "https://res.cloudinary.com/dxzmo0roe/image/upload/v1772797527/Christian_Globe_Design_e3befu.jpg";
@@ -112,10 +143,20 @@ export default function Layout({ children, currentPageName }) {
     socket.on('media_updated', () => handleUpdate('Gallery Updated', 'New photos or videos added!', [['media'], ['admin-media']]));
 
     // Chat Notifications
+    socket.on('account_suspended', (data) => {
+      toast.error(data.message || "Your account has been suspended.");
+      apiClient.auth.logout();
+      window.location.href = "/auth";
+    });
+
     if (user) {
       socket.emit('join', 'general');
       socket.on('newMessage', (msg) => {
-        if (currentPageName !== "Chat" && msg.sender_email !== user.email) {
+        // Only notify for public/group channels. 
+        // Ignore support channels and private DMs for the main navbar badge.
+        const isPublicChannel = !msg.channel || msg.channel === 'general' || msg.channel.startsWith('group_');
+        
+        if (currentPageName !== "Chat" && msg.sender_email !== user.email && isPublicChannel) {
           setUnreadChatCount(prev => {
             const next = prev + 1;
             sessionStorage.setItem("unreadChatCount", String(next));

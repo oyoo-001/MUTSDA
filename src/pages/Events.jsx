@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
@@ -16,10 +16,19 @@ import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Vide
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
+/**
+ * Parse the event date as Nairobi Time (UTC+3).
+ * This ensures users globally see the event at the correct physical moment.
+ * For users in Nairobi, this results in the exact time provided by the server.
+ */
+const parseAsEAT = (dateStr) => {
+  if (!dateStr) return null;
+  const hasTimezone = /Z|[+-]\d{2}:?\d{2}$/.test(dateStr);
+  return new Date(hasTimezone ? dateStr : `${dateStr}+03:00`);
+};
+
 // ── Countdown component ────────────────────────────────────────────────────
-// Parses event_date as EAT (UTC+3) regardless of the viewer's local timezone.
-// If the stored string already carries timezone info (Z, +03:00, etc.) it is
-// used as-is; otherwise +03:00 is appended before parsing.
+// Parses event_date based on the string provided by the server.
 function Countdown({ date }) {
   const [now, setNow] = useState(new Date());
 
@@ -28,21 +37,10 @@ function Countdown({ date }) {
     return () => clearInterval(timer);
   }, []);
 
-  /**
-   * Parse the event date as EAT (UTC+3).
-   * Naive strings like "2025-06-01T10:00:00" get +03:00 appended so the
-   * browser anchors them to Nairobi time instead of guessing the local zone.
-   */
-  const parseAsEAT = (dateStr) => {
-    if (!dateStr) return null;
-    const hasTimezone = /Z|[+-]\d{2}:?\d{2}$/.test(dateStr);
-    return new Date(hasTimezone ? dateStr : `${dateStr}+03:00`);
-  };
-
   const target = parseAsEAT(date);
 
-  // Hide the timer if the date is invalid or already in the past
-  if (!target || isNaN(target.getTime()) || isPast(target)) return null;
+  // Hide the timer if the date is invalid or already in the past/ongoing
+  if (!target || isNaN(target.getTime()) || target <= now) return null;
 
   const pad = (n) => n.toString().padStart(2, "0");
 
@@ -90,6 +88,7 @@ export default function Events() {
   const [user, setUser] = useState(null);
   const [filter, setFilter] = useState("all");
   const [selectedVideo, setSelectedVideo] = useState(null);
+  const [userLocation, setUserLocation] = useState(null);
   const [viewingDetails, setViewingDetails] = useState(null);
   const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
   const [loginAlertOpen, setLoginAlertOpen] = useState(false);
@@ -138,6 +137,14 @@ export default function Events() {
       }
     };
     loadUser();
+  }, []);
+
+  // Detect user location via IP for UI context
+  useEffect(() => {
+    fetch('https://ipapi.co/json/')
+      .then(res => res.json())
+      .then(data => setUserLocation(data))
+      .catch(() => console.log("Location detection skipped."));
   }, []);
 
   const { data: eventsData, isLoading, isError, refetch } = useQuery({
@@ -192,12 +199,41 @@ export default function Events() {
   });
 
   const events = useMemo(() => {
-    const list = Array.isArray(eventsData) ? eventsData : [];
-    if (filter === "all") return list;
-    if (filter === "live") return list.filter(e => !!e.video_link);
-    if (filter === "past") return list.filter(e => isPast(new Date(e.event_date)));
-    if (filter === "upcoming") return list.filter(e => !isPast(new Date(e.event_date)));
-    return list;
+    const list = Array.isArray(eventsData) ? [...eventsData] : [];
+    const now = new Date();
+
+    const getStatus = (event) => {
+      const start = parseAsEAT(event.event_date);
+      if (!start) return "past";
+      const end = event.end_date 
+        ? parseAsEAT(event.end_date) 
+        : new Date(start.getTime() + 3 * 60 * 60 * 1000); // Default 3h duration
+
+      if (now >= start && now <= end) return "ongoing";
+      if (now < start) return "upcoming";
+      return "past";
+    };
+
+    const sortedList = list.sort((a, b) => {
+      const statusA = getStatus(a);
+      const statusB = getStatus(b);
+      const order = { ongoing: 0, upcoming: 1, past: 2 };
+
+      if (order[statusA] !== order[statusB]) {
+        return order[statusA] - order[statusB];
+      }
+
+      const dateA = parseAsEAT(a.event_date);
+      const dateB = parseAsEAT(b.event_date);
+      if (statusA === "past") return dateB - dateA; // Newest past events first
+      return dateA - dateB; // Soonest upcoming events first
+    });
+
+    if (filter === "all") return sortedList;
+    if (filter === "live") return sortedList.filter(e => !!e.video_link);
+    if (filter === "past") return sortedList.filter(e => getStatus(e) === "past");
+    if (filter === "upcoming") return sortedList.filter(e => getStatus(e) === "upcoming" || getStatus(e) === "ongoing");
+    return sortedList;
   }, [eventsData, filter]);
 
   const rsvpEventIds = useMemo(() => {
@@ -674,6 +710,16 @@ export default function Events() {
         <div className="max-w-7xl mx-auto px-4 lg:px-8 text-center">
           <span className="text-[#c8a951] text-sm font-semibold uppercase tracking-wider">What's Happening</span>
           <h1 className="text-4xl md:text-5xl font-bold text-white mt-3 font-serif">Church Events</h1>
+          {userLocation && (
+            <motion.div 
+              initial={{ opacity: 0 }} 
+              animate={{ opacity: 1 }} 
+              className="mt-4 inline-flex items-center gap-2 px-3 py-1 bg-white/10 rounded-full border border-white/10 text-white/80 text-xs"
+            >
+              <MapPin className="w-3 h-3 text-[#c8a951]" />
+              Times automatically adjusted for <span className="text-white font-bold">{userLocation.city}, {userLocation.country_name}</span>
+            </motion.div>
+          )}
         </div>
       </section>
 
@@ -736,9 +782,20 @@ export default function Events() {
                             {event.category.replace(/_/g, " ")}
                           </Badge>
                         )}
-                        {event.event_date && isPast(new Date(event.event_date)) && !event.video_link && (
-                          <Badge variant="secondary" className="text-xs">Past</Badge>
-                        )}
+                        {(() => {
+                          const now = new Date();
+                          const start = parseAsEAT(event.event_date);
+                          if (!start) return null;
+                          const end = event.end_date ? parseAsEAT(event.end_date) : new Date(start.getTime() + 3 * 60 * 60 * 1000);
+                          
+                          if (now >= start && now <= end) {
+                            return <Badge className="bg-red-500 text-white border-0 text-xs animate-pulse">Ongoing</Badge>;
+                          } else if (now < start) {
+                            return <Badge className="bg-blue-500 text-white border-0 text-xs">Upcoming</Badge>;
+                          } else {
+                            return <Badge variant="secondary" className="text-xs">Past</Badge>;
+                          }
+                        })()}
                       </div>
                       <h3 className="font-bold text-[#1a2744] text-xl mb-3">{event.title}</h3>
                       <div className="space-y-2 text-sm text-gray-500 mb-4">
@@ -759,7 +816,7 @@ export default function Events() {
                         <p className="text-sm text-gray-500 mb-4 line-clamp-2">{event.description}</p>
                       )}
                       <div className="flex flex-wrap items-center gap-4">
-                        {event.event_date && !isPast(new Date(event.event_date)) && (
+                        {event.event_date && parseAsEAT(event.event_date) > new Date() && (
                           <Countdown date={event.event_date} />
                         )}
                         {event.video_link && (
@@ -785,7 +842,7 @@ export default function Events() {
                             )}
                           </div>
                         )}
-                        {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && !isPast(new Date(event.event_date)) && (
+                        {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && parseAsEAT(event.event_date) > new Date() && (
                           <Button
                             size="sm"
                             onClick={() => rsvpMutation.mutate(event.id)}

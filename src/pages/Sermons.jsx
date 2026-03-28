@@ -1,6 +1,7 @@
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
+import { cn } from "@/lib/utils";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
 import { Button } from "@/components/ui/button";
@@ -12,8 +13,10 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info } from "lucide-react";
+import { Search, Play, BookOpen, Headphones, FileText, AlertTriangle, Music, X, Info, Eye, Heart, MessageSquare, Reply, Send, Maximize2, Minimize2 } from "lucide-react";
+import { io } from "socket.io-client";
 import { motion } from "framer-motion";
+import { toast } from "sonner";
 
 const categoryLabels = {
   sabbath: "Sabbath",
@@ -24,9 +27,71 @@ const categoryLabels = {
   bible_study: "Bible Study",
 };
 
+const CommentsSection = ({ sermonId, user }) => {
+  const queryClient = useQueryClient();
+  const [content, setContent] = useState("");
+  const [replyTo, setReplyTo] = useState(null);
+  const inputRef = useRef(null);
+
+  const { data: comments = [], refetch } = useQuery({
+    queryKey: ["sermon-comments", sermonId],
+    queryFn: () => fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/sermons/${sermonId}/comments`).then(res => res.json()),
+    enabled: !!sermonId
+  });
+
+  const commentMutation = useMutation({
+    mutationFn: async (payload) => {
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+      const res = await fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/sermons/${sermonId}/comments`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error("Failed");
+      return res.json();
+    },
+    onSuccess: () => { setContent(""); setReplyTo(null); refetch(); queryClient.invalidateQueries({ queryKey: ["sermons"] }); }
+  });
+
+  return (
+    <div className="space-y-6 mt-8">
+      <h4 className="font-bold text-[#1a2744] flex items-center gap-2 text-sm uppercase tracking-wider"><MessageSquare className="w-4 h-4" /> Discussion</h4>
+      {user ? (
+        <div className="space-y-3">
+          {replyTo && <div className="flex items-center justify-between bg-amber-50 p-2 rounded text-[10px] text-amber-800 border border-amber-100"><span>Replying to <strong>{replyTo.User?.full_name}</strong></span><button onClick={() => setReplyTo(null)}><X className="w-3 h-3" /></button></div>}
+          <div className="flex gap-2">
+            <Input ref={inputRef} value={content} onChange={e => setContent(e.target.value)} placeholder={replyTo ? "Write a reply..." : "Add a comment..."} className="flex-1 text-sm h-10" />
+            <Button size="icon" onClick={() => commentMutation.mutate({ content, parent_id: replyTo?.id })} disabled={!content.trim() || commentMutation.isPending} className="bg-[#1a2744] shrink-0 h-10 w-10"><Send className="w-4 h-4" /></Button>
+          </div>
+        </div>
+      ) : <p className="text-xs text-gray-400 italic">Sign in to join the discussion.</p>}
+      <div className="space-y-5 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">
+        {comments.map(comment => (
+          <div key={comment.id} className="space-y-3">
+            <div className="flex gap-3">
+              <div className="w-8 h-8 rounded-full bg-slate-100 flex-shrink-0 flex items-center justify-center text-xs font-bold text-slate-400 overflow-hidden">{comment.User?.profile_photo_url ? <img src={comment.User.profile_photo_url} className="w-full h-full object-cover" /> : comment.User?.full_name?.[0]}</div>
+              <div className="flex-1">
+                <div className="bg-slate-50 p-3 rounded-2xl rounded-tl-none"><p className="text-[11px] font-bold text-[#1a2744] mb-0.5">{comment.User?.full_name}</p><p className="text-sm text-slate-700 leading-relaxed">{comment.content}</p></div>
+                <div className="flex items-center gap-3 mt-1.5 px-1"><span className="text-[10px] text-gray-400">{format(new Date(comment.created_date), "MMM d, h:mm a")}</span>{user && <button onClick={() => { setReplyTo(comment); inputRef.current?.focus(); }} className="text-[10px] font-bold text-[#c8a951] flex items-center gap-1 hover:underline"><Reply className="w-3 h-3" /> Reply</button>}</div>
+              </div>
+            </div>
+            {comment.Replies?.map(reply => (
+              <div key={reply.id} className="ml-11 flex gap-2">
+                <div className="w-6 h-6 rounded-full bg-slate-100 flex-shrink-0 flex items-center justify-center text-[10px] font-bold text-slate-400 overflow-hidden">{reply.User?.profile_photo_url ? <img src={reply.User.profile_photo_url} className="w-full h-full object-cover" /> : reply.User?.full_name?.[0]}</div>
+                <div className="bg-slate-50 p-2.5 rounded-2xl rounded-tl-none flex-1"><p className="text-[10px] font-bold text-[#1a2744] mb-0.5">{reply.User?.full_name}</p><p className="text-xs text-slate-700">{reply.content}</p></div>
+              </div>
+            ))}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 export default function Sermons() {
   const navigate = useNavigate();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const [searchParams] = useSearchParams();
   const [category, setCategory] = useState("all");
   const [search, setSearch] = useState("");
@@ -36,6 +101,53 @@ export default function Sermons() {
   const [viewingDetails, setViewingDetails] = useState(null);
   const [pendingAuthVideo, setPendingAuthVideo] = useState(null);
   const [loginAlertOpen, setLoginAlertOpen] = useState(false);
+  const [likedSermons, setLikedSermons] = useState(new Set());
+  const [isTheatreMode, setIsTheatreMode] = useState(false);
+
+  const playLikeSound = () => {
+    const audio = new Audio("https://res.cloudinary.com/dxzmo0roe/video/upload/v1774691759/mixkit-modern-technology-select-3124_vmm8p3.wav");
+    audio.volume = 0.4;
+    audio.play().catch(() => {}); // Catch prevents errors on some browsers blocking auto-play
+  };
+
+  useEffect(() => {
+    const socket = io(SOCKET_URL);
+    
+    socket.on('sermon_engagement_updated', (data) => {
+      // Refresh main list to update counts/likes
+      queryClient.invalidateQueries({ queryKey: ["sermons"] });
+      
+      // If it was a comment, refresh the comments query for that specific sermon
+      if (data.type === 'comment') {
+        queryClient.invalidateQueries({ queryKey: ["sermon-comments", Number(data.id)] });
+      }
+    });
+
+    return () => socket.disconnect();
+  }, [queryClient]);
+
+  const { data: sermons, isLoading, isError, refetch } = useQuery({
+    queryKey: ["sermons"],
+    queryFn: async () => {
+      const response = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
+      return Array.isArray(response) ? response : (response?.items || response?.data || []);
+    },
+    initialData: [],
+  });
+
+  const currentSermonData = useMemo(() => {
+    if (!selectedVideo) return null;
+    const list = Array.isArray(sermons) ? sermons : [];
+    return list.find(s => s.id === selectedVideo.id) || selectedVideo;
+  }, [selectedVideo, sermons]);
+
+  // Sync "Liked" status from DB result to UI state
+  useEffect(() => {
+    if (sermons && Array.isArray(sermons)) {
+      const liked = new Set(sermons.filter(s => s.is_liked > 0).map(s => s.id));
+      setLikedSermons(liked);
+    }
+  }, [sermons]);
 
   useEffect(() => {
     const loadUser = async () => {
@@ -48,15 +160,6 @@ export default function Sermons() {
     };
     loadUser();
   }, []);
-
-  const { data: sermons, isLoading, isError, refetch } = useQuery({
-    queryKey: ["sermons"],
-    queryFn: async () => {
-      const response = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
-      return Array.isArray(response) ? response : (response?.items || response?.data || []);
-    },
-    initialData: [],
-  });
 
   useEffect(() => {
     const watchId = searchParams.get("watch");
@@ -84,24 +187,62 @@ export default function Sermons() {
     return match ? match[1] : null;
   };
 
-  const handleWatch = (sermon) => {
+  const likeMutation = useMutation({
+    mutationFn: async (id) => {
+      const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+      const res = await fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/sermons/${id}/like`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${token}` }
+      });
+      return res.json();
+    },
+    onSuccess: (data, id) => {
+      if (data.liked) {
+        setLikedSermons(prev => new Set(prev).add(id));
+      } else {
+        setLikedSermons(prev => {
+          const next = new Set(prev);
+          next.delete(id);
+          return next;
+        });
+      }
+      queryClient.invalidateQueries({ queryKey: ["sermons"] });
+    }
+  });
+
+  const handleWatch = async (sermon) => {
     if (!user) {
       setPendingAuthVideo(sermon);
       setLoginAlertOpen(true);
     } else {
       setSelectedVideo(sermon);
+      try {
+        const token = localStorage.getItem('token') || localStorage.getItem('auth_token');
+        fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/sermons/${sermon.id}/view`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(() => {
+          queryClient.invalidateQueries({ queryKey: ["sermons"] });
+        });
+      } catch (e) {}
     }
   };
 
   return (
     <div className="min-h-screen bg-[#faf8f2]">
       {/* Video Playback Modal */}
-      <Dialog open={!!selectedVideo} onOpenChange={() => setSelectedVideo(null)}>
-        <DialogContent className="w-[calc(100vw-2rem)] max-w-4xl p-0 bg-black border-none overflow-hidden rounded-2xl">
+      <Dialog open={!!selectedVideo} onOpenChange={() => {
+        setSelectedVideo(null);
+        setIsTheatreMode(false);
+      }}>
+        <DialogContent className={cn(
+          "w-[95vw] p-0 bg-black border-none overflow-hidden rounded-2xl transition-all duration-500 flex flex-col",
+          isTheatreMode ? "max-w-4xl max-h-[95vh]" : "max-w-6xl lg:h-[75vh] lg:flex-row"
+        )}>
           <DialogHeader className="sr-only">
-            <DialogTitle>{selectedVideo?.title}</DialogTitle>
+            <DialogTitle>{currentSermonData?.title}</DialogTitle>
           </DialogHeader>
-          <div className="relative aspect-video w-full bg-black">
+          <div className={cn("relative aspect-video w-full bg-black shrink-0 transition-all duration-500", !isTheatreMode && "lg:aspect-auto lg:flex-[1.8]")}>
             {selectedVideo && (
               <>
                 {getYouTubeId(selectedVideo.video_link) ? (
@@ -122,9 +263,53 @@ export default function Sermons() {
               </>
             )}
           </div>
-          <div className="p-6 bg-white">
-             <h3 className="font-bold text-xl text-[#1a2744]">{selectedVideo?.title}</h3>
-             <p className="text-gray-500">{selectedVideo?.speaker}</p>
+          <div className={cn("p-6 bg-white flex-1 overflow-y-auto custom-scrollbar transition-all duration-500", !isTheatreMode && "lg:border-l lg:border-slate-100")}>
+             <div className="flex items-start justify-between gap-4 mb-4">
+               <div>
+                 <h3 className="font-bold text-xl text-[#1a2744] leading-tight">{currentSermonData?.title}</h3>
+                 <p className="text-gray-500 text-sm mt-1">{currentSermonData?.speaker}</p>
+               </div>
+               <div className="flex items-center gap-2">
+                 <Button 
+                   variant="outline" 
+                   size="sm" 
+                   title={isTheatreMode ? "Exit Theatre Mode" : "Enter Theatre Mode"}
+                   onClick={() => setIsTheatreMode(!isTheatreMode)}
+                   className="hidden lg:flex h-9 w-9 p-0 border-slate-200 hover:bg-slate-50 shrink-0 text-slate-500"
+                 >
+                   {isTheatreMode ? <Minimize2 className="w-4 h-4" /> : <Maximize2 className="w-4 h-4" />}
+                 </Button>
+
+                 <motion.div whileTap={{ scale: 0.9 }}>
+                   <Button 
+                     variant="outline" 
+                     size="sm" 
+                     onClick={() => {
+                       if (!user) return setLoginAlertOpen(true);
+                       playLikeSound();
+                       likeMutation.mutate(currentSermonData.id);
+                     }}
+                     className={`gap-2 shrink-0 transition-all duration-300 ${
+                       likedSermons.has(currentSermonData?.id) 
+                         ? "border-red-200 bg-red-50 text-red-600 hover:bg-red-100 hover:text-red-700" 
+                         : "border-[#c8a951]/20 hover:bg-[#c8a951]/10"
+                     }`}
+                   >
+                     <motion.div
+                       animate={likedSermons.has(currentSermonData?.id) ? { scale: [1, 1.5, 1], rotate: [0, 15, -15, 0] } : { scale: 1 }}
+                       transition={{ duration: 0.4 }}
+                     >
+                       <Heart className={`w-4 h-4 ${likedSermons.has(currentSermonData?.id) ? "fill-current" : ""}`} />
+                     </motion.div>
+                     <span className="font-bold">{currentSermonData?.likes_count || 0}</span>
+                   </Button>
+                 </motion.div>
+               </div>
+             </div>
+             <div className="flex items-center gap-4 text-xs text-gray-400 mb-6">
+               <span className="flex items-center gap-1.5"><Eye className="w-4 h-4" /> {currentSermonData?.views_count || 0} views</span>
+             </div>
+             <CommentsSection sermonId={currentSermonData?.id} user={user} />
           </div>
         </DialogContent>
       </Dialog>
@@ -255,12 +440,17 @@ export default function Sermons() {
                         <p className="text-sm text-gray-500 mb-4">{sermon.speaker}</p>
                         
                         <div className="mt-auto space-y-3">
-                          <div className="flex items-center text-xs text-gray-400 gap-4">
-                            {sermon.sermon_date && (
-                              <span>{format(new Date(sermon.sermon_date), "MMM d, yyyy")}</span>
-                            )}
+                          <div className="flex flex-wrap items-center text-[10px] text-gray-400 gap-x-4 gap-y-2">
+                            <div className="flex items-center gap-3">
+                              {sermon.sermon_date && (
+                                <span>{format(new Date(sermon.sermon_date), "MMM d, yyyy")}</span>
+                              )}
+                              <span className="flex items-center gap-1"><Eye className="w-3 h-3" /> {sermon.views_count || 0}</span>
+                              <span className="flex items-center gap-1"><Heart className="w-3 h-3" /> {sermon.likes_count || 0}</span>
+                              <span className="flex items-center gap-1"><MessageSquare className="w-3 h-3" /> {sermon.comments_count || 0}</span>
+                            </div>
                             {sermon.bible_references && (
-                              <span className="text-[#2d5f8a] font-medium italic">📖 {sermon.bible_references}</span>
+                              <span className="text-[#2d5f8a] font-medium italic truncate">📖 {sermon.bible_references}</span>
                             )}
                           </div>
                           

@@ -1,9 +1,9 @@
 import React, { useState } from "react";
 import { apiClient } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input } from "@/components/ui/input"; // Import social media icons
 import { Textarea } from "@/components/ui/textarea";
-import { MapPin, Phone, Mail, Clock, Send, CheckCircle2 } from "lucide-react";
+import { MapPin, Phone, Mail, Clock, Send, CheckCircle2, Facebook, Youtube, Instagram, Twitter, MessageCircle, Music2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
@@ -54,6 +54,31 @@ export default function Contact() {
                   </div>
                 </div>
               ))}
+            </div>
+            
+            {/* Social Media Links */}
+            <div className="mt-8">
+              <h3 className="font-semibold text-[#1a2744] text-lg mb-4 font-serif">Connect With Us</h3>
+              <div className="flex flex-wrap gap-4">
+                <a href="https://www.facebook.com/groups/509151038696455/" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <Facebook className="w-6 h-6" />
+                </a>
+                <a href="https://www.tiktok.com/@mutsda" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <Music2 className="w-6 h-6" />
+                </a>
+                <a href="https://www.youtube.com/@MUTSDA" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <Youtube className="w-6 h-6" />
+                </a>
+                <a href="https://instagram.com/mutsda" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <Instagram className="w-6 h-6" />
+                </a>
+                <a href="https://twitter.com/mutsda" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <Twitter className="w-6 h-6" />
+                </a>
+                <a href="https://wa.me/254742041208" target="_blank" rel="noopener noreferrer" className="w-12 h-12 rounded-full bg-[#1a2744] flex items-center justify-center text-white hover:bg-[#2d5f8a] transition-colors">
+                  <MessageCircle className="w-6 h-6" />
+                </a>
+              </div>
             </div>
 
             {/* Map placeholder */}

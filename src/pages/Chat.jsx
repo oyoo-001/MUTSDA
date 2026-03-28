@@ -383,7 +383,13 @@ export default function Chat() {
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
       extraHeaders: { "ngrok-skip-browser-warning": "true" },
-      auth: { token: localStorage.getItem('token') }
+      auth: { token: localStorage.getItem('token') },
+      transports: ['polling', 'websocket'],
+      withCredentials: true
+    });
+
+    socketRef.current.on('connect_error', (err) => {
+      console.error("Chat Socket Connect Error:", err.message);
     });
 
     socketRef.current.on("online_users_update", (users) => setOnlineUsers(users));
@@ -439,7 +445,7 @@ export default function Chat() {
           }
             if (msg.reply_to_sender_name === user.full_name) toast.info(`${msg.sender_name} replied to your message!`);
         }
-      } else {
+      } else if (msg.channel?.startsWith('group_')) {
         const groupId = msg.channel.replace('group_', '');
         setUnreadCounts(prev => ({
           ...prev,
