@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MessageCircle, X, Send, LogIn, Headphones, Bot, ChevronRight, Heart } from "lucide-react";
+import { MessageCircle, X, Send, Headphones, Bot, Paperclip, Smile, Image as ImageIcon, FileText } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { io } from "socket.io-client";
 
@@ -38,6 +38,7 @@ export default function LiveChat() {
   const [user, setUser] = useState(null);
   const [status, setStatus] = useState("idle");
   const [mode, setMode] = useState("bot");
+  const [showEmojis, setShowEmojis] = useState(false);
   const [isTyping, setIsTyping] = useState(false);
   const [awaitingRating, setAwaitingRating] = useState(false);
   const [messages, setMessages] = useState([
@@ -45,6 +46,7 @@ export default function LiveChat() {
   ]);
   const [input, setInput] = useState("");
   const scrollRef = useRef(null);
+  const fileInputRef = useRef(null);
   const navigate = useNavigate();
 
   useEffect(() => {
@@ -52,6 +54,20 @@ export default function LiveChat() {
       apiClient.auth.me().then(setUser).catch(() => setUser(null));
     }
   }, [open]);
+
+  useEffect(() => {
+    if (open && user) {
+      // Load conversation history for future reference
+      apiClient.entities.ChatMessage.list()
+        .then(allMsgs => {
+          const history = allMsgs
+            .filter(m => m.channel === `support_${user.id}`)
+            .map(m => ({ ...m, text: m.message, sender: m.sender_email === user.email ? "me" : "admin" }));
+          if (history.length > 0) setMessages(history);
+        })
+        .catch(err => console.error("Failed to load support history", err));
+    }
+  }, [open, user]);
 
   useEffect(() => {
     if (open) {
@@ -102,15 +118,45 @@ export default function LiveChat() {
     socket.emit('request_support', { id: user.id, name: user.full_name, email: user.email });
   };
 
-  const handleSendMessage = (e) => {
-    e.preventDefault();
-    if (!input.trim()) return;
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file || !user) return;
 
-    const originalText = input;
-    const lowerText = input.toLowerCase();
+    const formData = new FormData();
+    formData.append('file', file);
+
+    try {
+      const res = await fetch(`${SOCKET_URL.replace('/socket.io', '')}/api/chatmessages/upload`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${localStorage.getItem('token') || localStorage.getItem('auth_token')}` },
+        body: formData
+      });
+      const data = await res.json();
+      
+      const payload = {
+        message: `Sent a ${data.mediaType}`,
+        sender_name: user.full_name,
+        sender_email: user.email,
+        channel: `support_${user.id}`,
+        media_url: data.file_url,
+        media_type: data.mediaType,
+        media_filename: data.filename
+      };
+
+      socket.emit("sendMessage", payload);
+      setMessages(prev => [...prev, { ...payload, text: payload.message, sender: "me" }]);
+    } catch (err) {
+      console.error("Upload failed", err);
+    }
+  };
+
+  const handleSendMessage = (e, customText = null) => {
+    if (e) e.preventDefault();
+    const textToSend = customText || input;
+    if (!textToSend.trim()) return;
+
+    const originalText = textToSend;
     setInput("");
-
-    setMessages(prev => [...prev, { id: Date.now(), text: originalText, sender: "me" }]);
 
     if (mode === "live" && user) {
       socket.emit("sendMessage", {
@@ -119,7 +165,9 @@ export default function LiveChat() {
         sender_email: user.email,
         channel: `support_${user.id}`,
       });
+      setMessages(prev => [...prev, { id: Date.now(), text: originalText, sender: "me" }]);
     } else {
+      setMessages(prev => [...prev, { id: Date.now(), text: originalText, sender: "me" }]);
       if (awaitingRating) {
         setAwaitingRating(false);
         setMessages(prev => [...prev, { id: Date.now() + 1, text: "Thank you for your feedback!", sender: "bot" }]);
@@ -132,6 +180,7 @@ export default function LiveChat() {
         setIsTyping(false);
         let botResponse = "I'm not quite sure about that, but I can connect you to an admin who will know!";
         let shouldOfferAdmin = true;
+        const lowerText = originalText.toLowerCase();
 
         const userName = user?.full_name?.split(" ")[0] || "there";
 
@@ -189,7 +238,21 @@ export default function LiveChat() {
                   <div className={`max-w-[85%] p-3.5 rounded-2xl text-[13px] shadow-sm leading-relaxed ${
                     m.sender === "me" ? "bg-[#1a2744] text-white rounded-tr-none" : "bg-white text-slate-800 rounded-tl-none border border-slate-100"
                   }`}>
-                    {m.text || m.message}
+                    {m.media_url ? (
+                      <div className="space-y-2">
+                        {m.media_type === 'image' ? (
+                          <img src={m.media_url} alt="Uploaded" className="rounded-lg max-w-full h-auto cursor-pointer" onClick={() => window.open(m.media_url)} />
+                        ) : (
+                          <a href={m.media_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 underline">
+                            <FileText className="w-4 h-4" /> {m.media_filename || 'View File'}
+                          </a>
+                        )}
+                        <p className="text-[11px] opacity-70">{m.text}</p>
+                      </div>
+                    ) : (
+                      m.text || m.message
+                    )}
+                    
                     {m.isAction && (
                       <div className="mt-3 pt-3 border-t border-slate-100 space-y-2">
                         <p className="text-[11px] text-slate-400 italic">Would you like more help?</p>
@@ -215,6 +278,20 @@ export default function LiveChat() {
 
             {/* Input Area */}
             <div className="p-4 bg-white border-t">
+              <div className="flex gap-2 mb-2">
+                 <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileUpload} />
+                 <button type="button" onClick={() => fileInputRef.current?.click()} className="p-1.5 text-slate-400 hover:text-[#c8a951] transition-colors">
+                    <Paperclip className="w-4 h-4" />
+                 </button>
+                 <button type="button" onClick={() => setShowEmojis(!showEmojis)} className="p-1.5 text-slate-400 hover:text-[#c8a951] transition-colors">
+                    <Smile className="w-4 h-4" />
+                 </button>
+                 {showEmojis && (
+                   <div className="absolute bottom-20 left-4 bg-white border rounded-lg p-2 shadow-xl flex gap-2">
+                      {['🙏', '🙌', '⛪', '❤️', '😊'].map(e => <button key={e} onClick={() => { setInput(prev => prev + e); setShowEmojis(false); }} className="hover:scale-125 transition-transform">{e}</button>)}
+                   </div>
+                 )}
+              </div>
               <form onSubmit={handleSendMessage} className="flex gap-2">
                 <Input 
                   value={input} 

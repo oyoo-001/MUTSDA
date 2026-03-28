@@ -22,7 +22,11 @@ export default function AdminSupportModal({ user }) {
   useEffect(() => {
     if (!user || user.role !== 'admin') return;
 
-    socket = io(SOCKET_URL);
+    socket = io(SOCKET_URL, {
+      auth: {
+         token: localStorage.getItem('token') || localStorage.getItem('auth_token'), // The backend will use this to authenticate the connection
+      },
+    });
     socket.emit('admin_listening');
 
     socket.on('support_queue_update', (updatedQueue) => {
@@ -51,10 +55,6 @@ export default function AdminSupportModal({ user }) {
       socket.disconnect();
     };
   }, [user]);
-
-  // Don't show if already on the support dashboard tab
-  const isSupportPage = location.pathname.includes('AdminDashboard') && location.search.includes('tab=support');
-  if (isSupportPage) return null;
 
   // Find the first user in queue that hasn't been ignored by this admin
   const activeRequest = queue.find(u => !ignored.has(u.id));

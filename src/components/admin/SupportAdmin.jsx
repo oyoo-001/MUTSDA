@@ -5,7 +5,7 @@ import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { format } from "date-fns";
-import { Send, User, Clock, MessageSquare, ChevronLeft } from 'lucide-react';
+import { Send, User, Clock, MessageSquare, ChevronLeft, FileText, Image as ImageIcon } from 'lucide-react';
 
 let socket;
 
@@ -24,7 +24,11 @@ export default function SupportAdmin({ acceptUser, user }) {
   }, [session]);
 
   useEffect(() => {
-    socket = io(SOCKET_URL);
+    socket = io(SOCKET_URL, {
+      auth: {
+        token: localStorage.getItem('token') || localStorage.getItem('auth_token'),
+      },
+    });
     socket.emit('admin_listening');
 
     socket.on('support_queue_update', (updatedQueue) => {
@@ -147,7 +151,18 @@ export default function SupportAdmin({ acceptUser, user }) {
               <div className={`max-w-[80%] p-3 rounded-2xl text-sm shadow-sm ${
                 m.sender === 'admin' ? 'bg-[#1a2744] text-white rounded-tr-none' : 'bg-white text-slate-800 rounded-tl-none border'
               }`}>
-                {m.text}
+                {m.media_url ? (
+                  <div className="space-y-2">
+                    {m.media_type === 'image' ? (
+                      <img src={m.media_url} alt="attachment" className="rounded max-w-full h-auto max-h-48" />
+                    ) : (
+                      <a href={m.media_url} target="_blank" rel="noreferrer" className="flex items-center gap-2 text-blue-600 underline">
+                        <FileText className="w-4 h-4" /> {m.media_filename || 'Download File'}
+                      </a>
+                    )}
+                    <p>{m.text}</p>
+                  </div>
+                ) : m.text}
               </div>
             </div>
           ))}

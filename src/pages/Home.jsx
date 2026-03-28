@@ -98,12 +98,12 @@ const handleCopyLink = (id) => {
   setViewingAnnouncement(null);
   setCopied(false);
 }}>
-  <DialogContent className="max-w-xl bg-white rounded-2xl p-0 overflow-hidden border-none shadow-2xl">
+  <DialogContent className="w-[95vw] sm:max-w-xl bg-white rounded-2xl p-0 overflow-hidden border-none shadow-2xl max-h-[92vh] flex flex-col">
     {/* Header Section */}
-    <div className="bg-gradient-to-r from-[#1a2744] to-[#2d5f8a] p-6 text-white relative">
+    <div className="bg-gradient-to-r from-[#1a2744] to-[#2d5f8a] p-5 sm:p-6 text-white relative shrink-0">
       <DialogHeader>
         <div className="flex justify-between items-start pr-8">
-          <DialogTitle className="text-xl font-bold">{viewingAnnouncement?.title}</DialogTitle>
+          <DialogTitle className="text-lg sm:text-xl font-bold leading-tight">{viewingAnnouncement?.title}</DialogTitle>
           
           {/* Quick Share to WhatsApp */}
           <Button 
@@ -121,8 +121,19 @@ const handleCopyLink = (id) => {
         </div>
       </DialogHeader>
     </div>
+
+    {/* Banner Image */}
+    {viewingAnnouncement?.banner_image_url && (
+      <div className="w-full h-48 sm:h-64 overflow-hidden border-b border-gray-100 shrink-0">
+        <img 
+          src={viewingAnnouncement.banner_image_url} 
+          alt={viewingAnnouncement.title} 
+          className="w-full h-full object-cover"
+        />
+      </div>
+    )}
     
-    <div className="p-8 space-y-6">
+    <div className="p-5 sm:p-8 space-y-6 overflow-y-auto flex-1 custom-scrollbar">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-4 text-xs text-gray-500">
           <Badge className="capitalize bg-[#c8a951]/10 text-[#c8a951] border-0">
@@ -162,7 +173,7 @@ const handleCopyLink = (id) => {
         </div>
       </div>
 
-      <div className="text-base text-gray-700 leading-relaxed whitespace-pre-wrap max-h-[60vh] overflow-y-auto pr-2 custom-scrollbar">
+      <div className="text-base text-gray-700 leading-relaxed whitespace-pre-wrap">
         {viewingAnnouncement?.content}
       </div>
     </div>

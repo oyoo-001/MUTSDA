@@ -53,10 +53,15 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     if (user && user.role === 'admin') {
-      socketRef.current = io(SOCKET_URL);
+      socketRef.current = io(SOCKET_URL, {
+        auth: { token: localStorage.getItem('token') }
+      });
       socketRef.current.on('donations_updated', () => {
         toast.info("New donation received!");
         queryClient.invalidateQueries({ queryKey: ["admin-donations"] });
+      });
+      socketRef.current.on('support_queue_update', (updatedQueue) => {
+        setSupportQueueCount(updatedQueue.length);
       });
 
       // Listen for current ticker state to populate the modal

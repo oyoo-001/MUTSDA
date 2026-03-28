@@ -48,13 +48,15 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCo
             className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm transition-colors relative ${
               activeTab === item.id
                 ? "bg-[#c8a951]/20 text-[#c8a951]"
-                : "text-white/60 hover:text-white hover:bg-white/5"
+                : item.id === 'support' && supportQueueCount > 0
+                  ? "bg-red-500/10 text-red-400 animate-pulse shadow-[inset_0_0_10px_rgba(239,68,68,0.1)]"
+                  : "text-white/60 hover:text-white hover:bg-white/5"
             } ${collapsed ? "justify-center" : ""}`}
           >
             <item.icon className="w-4.5 h-4.5 shrink-0" />
             {!collapsed && <span>{item.label}</span>}
             {item.id === 'support' && supportQueueCount > 0 && (
-              <span className={`absolute ${collapsed ? 'top-0 right-0' : 'right-2'} flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white`}>
+              <span className={`absolute ${collapsed ? 'top-0 right-0' : 'right-2'} flex h-5 w-5 items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white animate-pulse shadow-[0_0_12px_rgba(239,68,68,0.6)]`}>
                 {supportQueueCount}
               </span>
             )}

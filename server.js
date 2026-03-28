@@ -1784,6 +1784,23 @@ const requireSocketAdmin = (socket, eventName) => {
 io.on('connection', (socket) => {
   console.log(`Socket connected: ${socket.id}`);
 
+  // Middleware to verify admin roles for specific sensitive events
+  socket.use(([event], next) => {
+    const adminEvents = [
+      'admin_update_ticker',
+      'admin_update_text_overlay',
+      'broadcaster',
+      'admin_listening',
+      'admin_accept_chat',
+      'admin_end_chat'
+    ];
+
+    if (adminEvents.includes(event) && !requireSocketAdmin(socket, event)) {
+      return next(new Error('Unauthorized: Admin access required.'));
+    }
+    next();
+  });
+
   // Watchdog: Clean up stale viewers periodically
   if (!io.watchdogInterval) {
     io.watchdogInterval = setInterval(() => {
@@ -1817,14 +1834,12 @@ io.on('connection', (socket) => {
   socket.emit('text_overlay_update', currentTextOverlayState); // Send current text overlay to new connection
 
   socket.on('admin_update_ticker', (newState) => {
-    if (!requireSocketAdmin(socket, 'admin_update_ticker')) return;
     currentTickerState = { ...currentTickerState, ...newState };
     io.emit('ticker_update', currentTickerState); // Broadcast to all
     console.log(`Ticker updated:`, currentTickerState);
   });
 
   socket.on('admin_update_text_overlay', (newState) => {
-    if (!requireSocketAdmin(socket, 'admin_update_text_overlay')) return;
     currentTextOverlayState = { ...currentTextOverlayState, ...newState };
     io.emit('text_overlay_update', currentTextOverlayState); // Broadcast to all
     console.log(`Text overlay updated:`, newState);
@@ -1836,7 +1851,6 @@ io.on('connection', (socket) => {
   });
 
   socket.on('broadcaster', (streamId) => {
-    if (!requireSocketAdmin(socket, 'broadcaster')) return;
     if (broadcasters[streamId] && broadcasters[streamId] !== socket.id) {
       // Stream is already active by another socket
       socket.emit('stream_error', { message: 'Stream is already active by another admin.' });
@@ -1902,7 +1916,6 @@ io.on('connection', (socket) => {
 
   // Admin is online and ready for support
   socket.on('admin_listening', () => {
-    if (!requireSocketAdmin(socket, 'admin_listening')) return;
     console.log(`Admin ${socket.id} is listening for support.`);
     socket.join('admins');
     socket.emit('support_queue_update', supportQueue);
@@ -1924,7 +1937,6 @@ io.on('connection', (socket) => {
 
   // Admin accepts a chat from the queue
   socket.on('admin_accept_chat', (data) => {
-    if (!requireSocketAdmin(socket, 'admin_accept_chat')) return;
     const targetUser = data.user || data;
     const adminName = data.adminName || 'Support Admin';
 
@@ -1963,7 +1975,6 @@ io.on('connection', (socket) => {
 
   // Admin ends a chat session
   socket.on('admin_end_chat', () => {
-    if (!requireSocketAdmin(socket, 'admin_end_chat')) return;
     if (activeSupportSession && activeSupportSession.adminSocketId === socket.id) {
       const { room, userSocketId } = activeSupportSession;
       console.log(`Admin ${socket.id} ended support session in room ${room}.`);

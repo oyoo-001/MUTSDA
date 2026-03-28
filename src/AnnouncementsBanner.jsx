@@ -46,6 +46,11 @@ export default function AnnouncementsBanner({ announcements, onViewAnnouncement 
             >
               <div className="flex items-start gap-3">
                 {a.pinned && <Pin className="w-4 h-4 text-[#c8a951] mt-0.5 shrink-0" />}
+                {a.banner_image_url && (
+                  <div className="w-14 h-14 rounded-lg overflow-hidden shrink-0 border border-white/10 hidden sm:block">
+                    <img src={a.banner_image_url} alt="" className="w-full h-full object-cover" />
+                  </div>
+                )}
                 <div className="flex-1">
                   <div className="flex justify-between items-start">
                     <h4 className="font-semibold text-white text-sm mb-1 group-hover:text-[#c8a951] transition-colors">

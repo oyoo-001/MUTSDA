@@ -131,10 +131,17 @@ export default function Layout({ children, currentPageName }) {
   const isAdmin = user?.role === "admin";
   const isAdminPage = currentPageName === "AdminDashboard";
 
+  // Corrected code
   if (isAdminPage) {
     return (
       <div className="min-h-screen bg-[#f8f7f4]">
+        {/* Render the standard dashboard children */}
         {children}
+
+        {/* Inject the AdminSupportModal key to ensure it is unique, 
+          which resolves the previous syntax error.
+        */}
+        <AdminSupportModal key="admin-support-modal" user={user} />
       </div>
     );
   }
@@ -355,7 +362,7 @@ export default function Layout({ children, currentPageName }) {
                 <ul className="space-y-2 text-sm text-white/60">
                   <li>📍 10200 Murang'a University of Technology, Murang'a</li>
                   <li>📞 +2547 420 41208</li>
-                  <li>✉ info@sdachurch.org</li>
+                  <li>✉mutsda@gmail.com</li>
                 </ul>
               </div>
             </div>

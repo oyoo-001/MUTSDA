@@ -382,7 +382,8 @@ export default function Chat() {
   // ── Initialize Socket ─────────────────────────────────────────────────────
   useEffect(() => {
     socketRef.current = io(SOCKET_URL, {
-      extraHeaders: { "ngrok-skip-browser-warning": "true" }
+      extraHeaders: { "ngrok-skip-browser-warning": "true" },
+      auth: { token: localStorage.getItem('token') }
     });
 
     socketRef.current.on("online_users_update", (users) => setOnlineUsers(users));
