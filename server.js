@@ -18,6 +18,9 @@ import fs from 'fs';
 import nodemailer from 'nodemailer';
 import webPush from 'web-push';
 import axios from 'axios';
+import helmet from 'helmet';
+import rateLimit from 'express-rate-limit';
+import hpp from 'hpp';
 import { createRequire } from 'module';
 
 const require = createRequire(import.meta.url);
@@ -69,12 +72,30 @@ const corsOptions = {
 
 
 app.use(cors(corsOptions));
+app.use(helmet({
+  contentSecurityPolicy: false, // Disable CSP for now to prevent breaking external scripts/styles unless fully configured
+}));
+app.use(hpp());
+
 // Capture raw body for webhook signature verification
 app.use(express.json({
   verify: (req, res, buf) => {
     req.rawBody = buf;
   }
 }));
+
+// Rate limiting
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // limit each IP to 10 requests per windowMs for auth
+  message: { message: 'Too many requests from this IP, please try again after 15 minutes' }
+});
+
+const contactLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000, // 1 hour
+  max: 5, // limit each IP to 5 requests per hour for contact/invite
+  message: { message: 'Too many requests, please try again later' }
+});
 
 
 app.get('/ping', (req, res) => res.status(200).send('OK'));
@@ -1566,14 +1587,14 @@ authRouter.post('/me/photo', protect, upload.single('photo'), processFileUpload,
     res.status(500).json({ message: 'Server Error' });
   }
 });
-authRouter.post('/invite', protect, admin, authController.invite);
-authRouter.post('/register', authController.register);
-authRouter.post('/login', authController.login);
-authRouter.post('/google', authController.googleLogin);
+authRouter.post('/invite', protect, admin, contactLimiter, authController.invite);
+authRouter.post('/register', authLimiter, authController.register);
+authRouter.post('/login', authLimiter, authController.login);
+authRouter.post('/google', authLimiter, authController.googleLogin);
 authRouter.get('/me', protect, authController.getMe);
-authRouter.post('/forgot-password', authController.forgotPassword);
-authRouter.post('/verify-otp', authController.verifyOtp);
-authRouter.post('/reset-password', authController.resetPassword);
+authRouter.post('/forgot-password', authLimiter, authController.forgotPassword);
+authRouter.post('/verify-otp', authLimiter, authController.verifyOtp);
+authRouter.post('/reset-password', authLimiter, authController.resetPassword);
 authRouter.post('/push-subscribe', protect, pushController.subscribe);
 authRouter.post('/push-test', protect, pushController.test);
 authRouter.post('/push-broadcast', protect, admin, pushController.broadcast); // Admin: manually broadcast to all
@@ -1615,7 +1636,7 @@ mediaItemRouter.delete('/:id', protect, admin, mediaItemController.delete);
 
 const contactMessageRouter = express.Router();
 contactMessageRouter.get('/', protect, admin, contactMessageController.getAll); // Admin only
-contactMessageRouter.post('/', contactMessageController.create); // Public
+contactMessageRouter.post('/', contactLimiter, contactMessageController.create); // Public
 contactMessageRouter.put('/:id/read', protect, admin, contactMessageController.markAsRead);
 
 const userRouter = express.Router(); // For admin to manage users
@@ -2588,7 +2609,21 @@ const __dirname = path.dirname(__filename);
 app.post('/api/files/extract-text', async (req, res) => {
   try {
     const { url } = req.body;
-    if (!url) return res.status(400).json({ error: 'No URL provided' });
+    if (!url) return res.status(400).json({ message: 'URL is required' });
+
+    // SSRF Protection: Strictly whitelist Cloudinary and church resources
+    const allowedDomains = ['res.cloudinary.com', 'mutsda.onrender.com', 'mutsda.org'];
+    let isAllowed = false;
+    try {
+      const parsedUrl = new URL(url);
+      isAllowed = allowedDomains.some(domain => parsedUrl.hostname.endsWith(domain));
+    } catch (e) {
+      return res.status(400).json({ message: 'Invalid URL format' });
+    }
+
+    if (!isAllowed) {
+      return res.status(403).json({ message: 'URL domain not whitelisted for extraction.' });
+    }
 
     // Stream the file downloaded from cloudinary or absolute URL
     let fetchUrl = url;
