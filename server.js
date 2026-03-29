@@ -70,12 +70,7 @@ app.use(express.json({
     req.rawBody = buf;
   }
 }));
-// Captures the raw request body so webhook signature verification works correctly.
-app.use('/api/donations/webhook', express.raw({ type: 'application/json' }), (req, res, next) => {
-  req.rawBody = req.body; // express.raw() puts the Buffer here
-  req.body = JSON.parse(req.body); // re-parse for downstream use
-  next();
-});
+
 
 app.get('/ping', (req, res) => res.status(200).send('OK'));
 // -----------------------------------------------------------------------------
@@ -104,7 +99,7 @@ const sequelize = new Sequelize(
 sequelize.authenticate()
   .then(() => {
     console.log('MySQL Connected');
-    
+
     if (process.env.NODE_ENV !== 'production') {
       return sequelize.sync();
     } else {
@@ -240,10 +235,10 @@ const ChatMessage = sequelize.define('ChatMessage', {
 
 // AI Chat model — stores per-user conversation history with the AI pastor
 const AiChatMessage = sequelize.define('AiChatMessage', {
-  user_email:  { type: DataTypes.STRING, allowNull: false },
-  role:        { type: DataTypes.ENUM('user', 'model'), allowNull: false },
-  content:     { type: DataTypes.TEXT,   allowNull: false },
-  session_id:  { type: DataTypes.STRING, allowNull: true }, // groups messages into one conversation session
+  user_email: { type: DataTypes.STRING, allowNull: false },
+  role: { type: DataTypes.ENUM('user', 'model'), allowNull: false },
+  content: { type: DataTypes.TEXT, allowNull: false },
+  session_id: { type: DataTypes.STRING, allowNull: true }, // groups messages into one conversation session
 }, { timestamps: true, createdAt: 'created_date', updatedAt: false });
 
 // DirectMessage model — private one-to-one messages between users
@@ -339,12 +334,12 @@ const upload = multer({ storage: storage });
 
 const protect = async (req, res, next) => {
   let token;
-  
+
   if (req.headers.authorization && req.headers.authorization.startsWith('Bearer')) {
     try {
       token = req.headers.authorization.split(' ')[1];
       const decoded = jwt.verify(token, process.env.JWT_SECRET);
-      
+
       req.user = await User.findByPk(decoded.id, {
         attributes: { exclude: ['password'] }
       });
@@ -727,7 +722,7 @@ const authController = {
         .createHash('sha256')
         .update(otp)
         .digest('hex');
-      
+
       // 3. Set an expiry time (e.g., 15 minutes)
       user.resetPasswordExpires = Date.now() + 15 * 60 * 1000;
 
@@ -768,36 +763,36 @@ const authController = {
   verifyOtp: async (req, res) => {
     const { email, otp } = req.body;
     if (!email || !otp) {
-        return res.status(400).json({ message: 'Please provide email and OTP.' });
+      return res.status(400).json({ message: 'Please provide email and OTP.' });
     }
 
     const resetPasswordToken = crypto
       .createHash('sha256')
       .update(otp)
       .digest('hex');
-    
+
     try {
-        const user = await User.findOne({
-            where: {
-                email,
-                resetPasswordToken,
-                resetPasswordExpires: { [Sequelize.Op.gt]: Date.now() }
-            }
-        });
-
-        if (!user) {
-            return res.status(400).json({ message: 'Invalid OTP or email, or OTP has expired.' });
+      const user = await User.findOne({
+        where: {
+          email,
+          resetPasswordToken,
+          resetPasswordExpires: { [Sequelize.Op.gt]: Date.now() }
         }
+      });
 
-        res.status(200).json({ message: 'OTP verified successfully.' });
+      if (!user) {
+        return res.status(400).json({ message: 'Invalid OTP or email, or OTP has expired.' });
+      }
+
+      res.status(200).json({ message: 'OTP verified successfully.' });
     } catch (err) {
-        console.error('Error in auth verifyOtp:', err);
-        res.status(500).json({ message: 'Server Error' });
+      console.error('Error in auth verifyOtp:', err);
+      res.status(500).json({ message: 'Server Error' });
     }
   },
   resetPassword: async (req, res) => {
     const { email, otp, password } = req.body;
-    
+
     if (!email || !otp || !password) {
       return res.status(400).json({ message: 'Please provide email, OTP, and new password.' });
     }
@@ -806,7 +801,7 @@ const authController = {
       .createHash('sha256')
       .update(otp)
       .digest('hex');
-    
+
     try {
       const user = await User.findOne({
         where: {
@@ -846,7 +841,7 @@ const sermonController = {
           const token = req.headers.authorization.split(' ')[1];
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
           userId = decoded.id;
-        } catch (e) {}
+        } catch (e) { }
       }
 
       const sermons = await Sermon.findAll({
@@ -856,8 +851,8 @@ const sermonController = {
             [sequelize.literal('(SELECT COUNT(*) FROM SermonViews WHERE SermonViews.sermon_id = Sermon.id)'), 'views_count'],
             [sequelize.literal('(SELECT COUNT(*) FROM SermonLikes WHERE SermonLikes.sermon_id = Sermon.id)'), 'likes_count'],
             [sequelize.literal('(SELECT COUNT(*) FROM SermonComments WHERE SermonComments.sermon_id = Sermon.id)'), 'comments_count'],
-            userId ? [sequelize.literal(`(SELECT COUNT(*) FROM SermonLikes WHERE SermonLikes.sermon_id = Sermon.id AND SermonLikes.user_id = ${userId})`), 'is_liked'] 
-                   : [sequelize.literal('0'), 'is_liked']
+            userId ? [sequelize.literal(`(SELECT COUNT(*) FROM SermonLikes WHERE SermonLikes.sermon_id = Sermon.id AND SermonLikes.user_id = ${userId})`), 'is_liked']
+              : [sequelize.literal('0'), 'is_liked']
           ]
         },
         order: [['sermon_date', 'DESC']]
@@ -876,27 +871,27 @@ const sermonController = {
           const token = req.headers.authorization.split(' ')[1];
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
           userId = decoded.id;
-        } catch (e) {}
+        } catch (e) { }
       }
       await SermonView.create({ sermon_id: req.params.id, user_id: userId });
-      
+
       if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'view' });
-      
+
       res.status(204).send();
     } catch (err) { res.status(500).json({ message: 'Server Error' }); }
   },
   toggleLike: async (req, res) => {
     try {
       const existing = await SermonLike.findOne({ where: { sermon_id: req.params.id, user_id: req.user.id } });
-      if (existing) { 
-        await existing.destroy(); 
+      if (existing) {
+        await existing.destroy();
         if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'like' });
-        return res.json({ liked: false }); 
+        return res.json({ liked: false });
       }
       await SermonLike.create({ sermon_id: req.params.id, user_id: req.user.id });
-      
+
       if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'like' });
-      
+
       res.json({ liked: true });
     } catch (err) { res.status(500).json({ message: 'Server Error' }); }
   },
@@ -916,9 +911,9 @@ const sermonController = {
   postComment: async (req, res) => {
     try {
       const comment = await SermonComment.create({ sermon_id: req.params.id, user_id: req.user.id, content: req.body.content, parent_id: req.body.parent_id || null });
-      
+
       if (req.app.get('io')) req.app.get('io').emit('sermon_engagement_updated', { id: req.params.id, type: 'comment' });
-      
+
       res.status(201).json(comment);
     } catch (err) { res.status(500).json({ message: 'Server Error' }); }
   }
@@ -981,9 +976,9 @@ const donationController = {
       const isAdmin = req.user.role === 'admin' || req.user.role === 'pastor';
       const where = (isAdmin && req.query.all === 'true') ? {} : { donor_email: req.user.email };
 
-      const items = await Donation.findAll({ 
+      const items = await Donation.findAll({
         where,
-        order: [['created_date', 'DESC']] 
+        order: [['created_date', 'DESC']]
       });
       res.json(items);
     } catch (err) {
@@ -1000,13 +995,13 @@ const donationController = {
     }
 
     try {
-     
+
       const existing = await Donation.findOne({ where: { transaction_reference } });
       if (existing) {
         return res.status(409).json({ message: "This transaction has already been recorded." });
       }
 
-     
+
       const paystackResponse = await new Promise((resolve, reject) => {
         const options = {
           hostname: 'api.paystack.co',
@@ -1108,7 +1103,7 @@ const donationController = {
       const txData = paystackResponse.data;
 
       if (amount) {
-        const paidKobo     = txData.amount;
+        const paidKobo = txData.amount;
         const expectedKobo = Math.round(parseFloat(amount) * 100);
         if (paidKobo < expectedKobo) {
           console.error(`[Donation] Amount mismatch for ${reference}. Paid: ${paidKobo}, Expected: ${expectedKobo}`);
@@ -1118,29 +1113,29 @@ const donationController = {
         }
       }
 
-      const meta                 = txData.metadata || {};
-      const resolvedDonorName    = meta.donor_name      || donor_name     || 'Anonymous';
-      const resolvedDonationType = meta.donation_type   || donation_type  || 'offering';
-      const resolvedCustomFund   = meta.custom_fund_name || custom_fund_name || null;
-      const resolvedEmail        = txData.customer?.email || donor_email;
-      const resolvedChannel      = txData.channel        || 'paystack';
-      const resolvedAmount       = txData.amount / 100;
+      const meta = txData.metadata || {};
+      const resolvedDonorName = meta.donor_name || donor_name || 'Anonymous';
+      const resolvedDonationType = meta.donation_type || donation_type || 'offering';
+      const resolvedCustomFund = meta.custom_fund_name || custom_fund_name || null;
+      const resolvedEmail = txData.customer?.email || donor_email;
+      const resolvedChannel = txData.channel || 'paystack';
+      const resolvedAmount = txData.amount / 100;
 
       const [donation, created] = await Donation.findOrCreate({
         where: { transaction_reference: reference },
         defaults: {
-          donor_name:            resolvedDonorName,
-          donor_email:           resolvedEmail,
-          donation_type:         resolvedDonationType,
-          custom_fund_name:      resolvedCustomFund,
-          amount:                resolvedAmount,
-          payment_method:        resolvedChannel,
+          donor_name: resolvedDonorName,
+          donor_email: resolvedEmail,
+          donation_type: resolvedDonationType,
+          custom_fund_name: resolvedCustomFund,
+          amount: resolvedAmount,
+          payment_method: resolvedChannel,
           transaction_reference: reference,
-          status:                'success',
+          status: 'success',
         },
       });
 
-      
+
       if (!created && donation.status === 'pending') {
         await donation.update({ status: 'success' });
       }
@@ -1169,7 +1164,7 @@ const donationController = {
     }
 
     try {
-      
+
       if (!req.rawBody) {
         console.error('❌ Webhook Error: req.rawBody is missing. Ensure the rawBody middleware is registered before this route.');
         return res.status(500).send('Server configuration error');
@@ -1184,11 +1179,11 @@ const donationController = {
 
       const receivedSig = req.headers['x-paystack-signature'] || '';
 
-     
+
       const hashBuf = Buffer.from(hash, 'hex');
-      const sigBuf  = Buffer.from(receivedSig, 'hex');
+      const sigBuf = Buffer.from(receivedSig, 'hex');
       const sigValid = hashBuf.length === sigBuf.length &&
-                       crypto.timingSafeEqual(hashBuf, sigBuf);
+        crypto.timingSafeEqual(hashBuf, sigBuf);
 
       if (!sigValid) {
         console.warn('⚠️ Webhook Warning: Invalid signature received.');
@@ -1204,13 +1199,13 @@ const donationController = {
           const [donation, created] = await Donation.findOrCreate({
             where: { transaction_reference: reference },
             defaults: {
-              donor_name:            metadata?.donor_name || 'Anonymous',
-              donor_email:           customer?.email,
-              donation_type:         metadata?.donation_type || 'offering',
-              custom_fund_name:      metadata?.custom_fund_name,
-              amount:                amount / 100,
-              payment_method:        channel,
-              status:                'success',
+              donor_name: metadata?.donor_name || 'Anonymous',
+              donor_email: customer?.email,
+              donation_type: metadata?.donation_type || 'offering',
+              custom_fund_name: metadata?.custom_fund_name,
+              amount: amount / 100,
+              payment_method: channel,
+              status: 'success',
             }
           });
 
@@ -1293,11 +1288,11 @@ const chatMessageController = {
       // If a channel is specified, filter by it. Otherwise, return nothing or default to general.
       // This prevents support_ messages from leaking into the 'general' history fetch.
       const where = channel ? { channel } : { channel: 'general' };
-      
-      const items = await ChatMessage.findAll({ 
+
+      const items = await ChatMessage.findAll({
         where,
         order: [['created_date', 'DESC']],
-        limit: 100 
+        limit: 100
       });
       res.json(items);
     } catch (err) {
@@ -1380,7 +1375,7 @@ const pushController = {
     try {
       const user = await User.findByPk(req.user.id);
       if (!user) return res.status(404).json({ message: 'User not found' });
-      
+
       await user.update({ push_subscription: JSON.stringify(req.body) });
       res.status(200).json({ message: 'Push subscription saved' });
     } catch (err) {
@@ -1462,7 +1457,7 @@ authRouter.post('/push-test', protect, pushController.test);
 const sermonRouter = express.Router();
 sermonRouter.get('/', sermonController.getAll); // Public
 sermonRouter.get('/:id', sermonController.getById); // Public
-sermonRouter.post('/:id/view', sermonController.recordView); 
+sermonRouter.post('/:id/view', sermonController.recordView);
 sermonRouter.post('/:id/like', protect, sermonController.toggleLike);
 sermonRouter.get('/:id/comments', sermonController.getComments);
 sermonRouter.post('/:id/comments', protect, sermonController.postComment);
@@ -1486,7 +1481,7 @@ announcementRouter.delete('/:id', protect, admin, announcementController.delete)
 const donationRouter = express.Router();
 donationRouter.post('/webhook', donationController.webhook);           // Paystack webhook (no auth)
 donationRouter.post('/verify', donationController.verify);             // Frontend verify-and-save (public)
-donationRouter.get('/', protect,  donationController.getAll);    // Admin only
+donationRouter.get('/', protect, donationController.getAll);    // Admin only
 donationRouter.post('/', donationController.create);                   // Legacy create (public)
 
 const mediaItemRouter = express.Router();
@@ -1513,14 +1508,14 @@ const chatRouter = express.Router();
 chatRouter.get('/', protect, chatMessageController.getAll); // Get all messages for a channel
 chatRouter.post('/upload', protect, upload.single('file'), (req, res) => {
   if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
-  
+
   const fileUrl = req.file.path;
   const mimeType = req.file.mimetype;
   let mediaType = 'file';
   if (mimeType.startsWith('image/')) mediaType = 'image'; // includes gifs
   else if (mimeType.startsWith('video/')) mediaType = 'video';
   else if (mimeType.startsWith('audio/')) mediaType = 'audio';
-  
+
   res.json({ file_url: fileUrl, url: fileUrl, mediaType, filename: req.file.originalname });
 });
 
@@ -1579,30 +1574,30 @@ dmRouter.patch('/:channelId/read', protect, async (req, res) => {
 
 const coreRouter = express.Router();
 coreRouter.post('/send-email', async (req, res) => {
-    const { to, subject, body } = req.body;
-    // Basic input validation
-    if (!to || !subject || !body) {
-      return res.status(400).json({ message: 'to, subject, and body are required.' });
-    }
-    // Validate recipient is a plausible email address
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
-      return res.status(400).json({ message: 'Invalid recipient email address.' });
-    }
-    try {
-      const textVersion = body.replace(/<[^>]*>?/gm, ''); // Simple conversion to text
-      const html = createStyledEmail(subject, body);
+  const { to, subject, body } = req.body;
+  // Basic input validation
+  if (!to || !subject || !body) {
+    return res.status(400).json({ message: 'to, subject, and body are required.' });
+  }
+  // Validate recipient is a plausible email address
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) {
+    return res.status(400).json({ message: 'Invalid recipient email address.' });
+  }
+  try {
+    const textVersion = body.replace(/<[^>]*>?/gm, ''); // Simple conversion to text
+    const html = createStyledEmail(subject, body);
 
-      await sendEmail({
-        email: to,
-        subject: subject,
-        message: textVersion,
-        html: html
-      });
-      res.status(200).json({ message: "Email sent successfully." });
-    } catch (error) {
-      console.error("Email send error:", error);
-      res.status(500).json({ message: "Failed to send email" });
-    }
+    await sendEmail({
+      email: to,
+      subject: subject,
+      message: textVersion,
+      html: html
+    });
+    res.status(200).json({ message: "Email sent successfully." });
+  } catch (error) {
+    console.error("Email send error:", error);
+    res.status(500).json({ message: "Failed to send email" });
+  }
 });
 
 // -----------------------------------------------------------------------------
@@ -1722,7 +1717,7 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
 
     // 4. Call Gemini API
     const geminiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${geminiApiKey}`;
-    
+
     const geminiBody = {
       system_instruction: systemInstruction,
       contents: [
@@ -1734,8 +1729,8 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
         maxOutputTokens: 2048,
       },
       safetySettings: [
-        { category: 'HARM_CATEGORY_HARASSMENT',        threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
-        { category: 'HARM_CATEGORY_HATE_SPEECH',       threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
+        { category: 'HARM_CATEGORY_HATE_SPEECH', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         { category: 'HARM_CATEGORY_SEXUALLY_EXPLICIT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
         { category: 'HARM_CATEGORY_DANGEROUS_CONTENT', threshold: 'BLOCK_MEDIUM_AND_ABOVE' },
       ],
@@ -1835,8 +1830,8 @@ jaasRouter.post('/token', protect, async (req, res) => {
   const { roomName, isModerator } = req.body;
 
   // ── 1. Validate environment ───────────────────────────────────────────────
-  const appId      = process.env.JAAS_APP_ID;
-  const kid        = process.env.JAAS_KID;
+  const appId = process.env.JAAS_APP_ID;
+  const kid = process.env.JAAS_KID;
   const privateKeyB64 = process.env.JAAS_PRIVATE_KEY;
 
   if (!appId || !kid || !privateKeyB64) {
@@ -1874,21 +1869,21 @@ jaasRouter.post('/token', protect, async (req, res) => {
     aud: 'jitsi',             // JaaS requires the literal string "jitsi"
     sub: appId,               // Your JaaS App ID
     room: '*',                // '*' allows the token to be used for any room
-                              // Replace with roomName for tighter per-room scoping
+    // Replace with roomName for tighter per-room scoping
     iat: now,
     exp: now + (90 * 60),    // Token valid for 90 minutes
 
     context: {
       user: {
-        id:        String(req.user.id),
-        name:      req.user.full_name || 'MUTSDA Member',
-        email:     req.user.email    || '',
-        avatar:    req.user.profile_photo_url || '',
+        id: String(req.user.id),
+        name: req.user.full_name || 'MUTSDA Member',
+        email: req.user.email || '',
+        avatar: req.user.profile_photo_url || '',
         moderator: serverSideModerator,
       },
       features: {
         livestreaming: serverSideModerator,   // Only moderators can start streams
-        recording:     serverSideModerator,   // Only moderators can record
+        recording: serverSideModerator,   // Only moderators can record
         transcription: false,
         'outbound-call': false,
       },
@@ -2089,7 +2084,7 @@ io.on('connection', (socket) => {
     if (broadcasterId) {
       io.to(broadcasterId).emit('watcher', socket.id);
     }
-    
+
     // Add to viewers tracking
     if (!streamViewers.has(streamId)) {
       streamViewers.set(streamId, new Map());
@@ -2157,7 +2152,7 @@ io.on('connection', (socket) => {
 
     if (userToChat) {
       supportQueue.splice(userIndex, 1);
-      
+
       const room = `support_${userToChat.id}`;
       const newSession = {
         adminSocketId: socket.id,
@@ -2187,9 +2182,9 @@ io.on('connection', (socket) => {
     if (sessionIndex !== -1) {
       const { room, userSocketId } = activeSupportSessions[sessionIndex];
       console.log(`Admin ${socket.id} ended support session in room ${room}.`);
-      
+
       io.to(room).emit('support_session_ended', { message: 'The admin has ended the chat session.' });
-      
+
       const userSocket = io.sockets.sockets.get(userSocketId);
       if (userSocket) userSocket.leave(room);
       socket.leave(room);
@@ -2201,7 +2196,7 @@ io.on('connection', (socket) => {
   socket.on('i_am_online', (user) => {
     if (user) {
       // Update last active status in DB
-      User.update({ last_active: new Date() }, { where: { id: user.id } }).catch(() => {});
+      User.update({ last_active: new Date() }, { where: { id: user.id } }).catch(() => { });
 
       onlineUsers.set(socket.id, {
         id: user.id,
@@ -2307,9 +2302,9 @@ io.on('connection', (socket) => {
 
       if (canDelete) {
         await message.destroy();
-        io.to(message.channel).emit('messageDeleted', { 
-          messageId: message.id, 
-          channel: message.channel 
+        io.to(message.channel).emit('messageDeleted', {
+          messageId: message.id,
+          channel: message.channel
         });
       } else {
         socket.emit('deleteError', { message: 'You do not have permission to delete this message.' });
@@ -2336,7 +2331,7 @@ io.on('connection', (socket) => {
       if (!message) {
         message = await DirectMessage.findByPk(messageId);
       }
-      
+
       if (!message) return;
 
       // Check if user is the sender
@@ -2346,10 +2341,10 @@ io.on('connection', (socket) => {
       }
 
       await message.update({ message: newMessage });
-      io.to(message.channel).emit('messageUpdated', { 
-        id: message.id, 
-        message: newMessage, 
-        channel: message.channel 
+      io.to(message.channel).emit('messageUpdated', {
+        id: message.id,
+        message: newMessage,
+        channel: message.channel
       });
     } catch (err) {
       console.error('Socket editMessage error:', err);
@@ -2366,7 +2361,7 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log(`Socket disconnected: ${socket.id}`);
-    
+
     // General chat cleanup
     if (onlineUsers.has(socket.id)) {
       onlineUsers.delete(socket.id);
@@ -2408,7 +2403,7 @@ io.on('connection', (socket) => {
       const session = activeSupportSessions[sessionIndex];
       const endMessage = socket.id === session.userSocketId ? 'The user has disconnected.' : 'The admin has disconnected.';
       io.to(session.room).emit('support_session_ended', { message: endMessage });
-      
+
       const uSocket = io.sockets.sockets.get(session.userSocketId);
       const aSocket = io.sockets.sockets.get(session.adminSocketId);
       if (uSocket) uSocket.leave(session.room);
@@ -2460,7 +2455,7 @@ app.get('*', async (req, res) => {
         meta.description = event.description ? event.description.substring(0, 160) : meta.description;
         meta.image = event.banner_image_url || meta.image;
       }
-    } 
+    }
     // 2. If the link is for an Announcement
     else if (announcementId) {
       const announcement = await sequelize.models.Announcement.findByPk(announcementId);
@@ -2468,7 +2463,7 @@ app.get('*', async (req, res) => {
         meta.title = `Update: ${announcement.title}`;
         meta.description = announcement.content ? announcement.content.substring(0, 160) : meta.description;
         // Use a specific announcement image or the church logo
-        meta.image = "https://mutsda.onrender.com/announcement-share-banner.jpg"; 
+        meta.image = "https://mutsda.onrender.com/announcement-share-banner.jpg";
       }
     }
   } catch (err) {
@@ -2489,9 +2484,9 @@ app.get('*', async (req, res) => {
       .replace(/>/g, '&gt;');
 
     const safeTitle = escapeHtml(meta.title);
-    const safeDesc  = escapeHtml(meta.description);
+    const safeDesc = escapeHtml(meta.description);
     const safeImage = escapeHtml(meta.image);
-    const safeUrl   = encodeURI(meta.url); // encode the URL, don't trust raw input
+    const safeUrl = encodeURI(meta.url); // encode the URL, don't trust raw input
 
     const ogTags = `
       <title>${safeTitle}</title>
