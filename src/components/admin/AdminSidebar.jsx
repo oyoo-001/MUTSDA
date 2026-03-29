@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   LayoutDashboard, Users, BookOpen, Calendar, Heart, Headphones,
-  Bell, Image, MessageSquare, Church, ChevronLeft, MessageCircle, Radio
+  Bell, Image, MessageSquare, Church, ChevronLeft, MessageCircle, Radio, Send
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -18,6 +18,7 @@ const navItems = [
   { id: "chat-groups", label: "Chat Groups", icon: MessageCircle },
   { id: "support", label: "Live Support", icon: Headphones },
   { id: "messages", label: "Messages", icon: MessageSquare },
+  { id: "push", label: "Push Notifications", icon: Send },
 ];
 
 export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCollapsed, supportQueueCount = 0 }) {

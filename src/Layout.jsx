@@ -16,6 +16,7 @@ import {
   DropdownMenuSeparator, DropdownMenuTrigger
 } from "@/components/ui/dropdown-menu";
 import AdminSupportModal from "@/components/admin/AdminSupportModal";
+import PWAInstallPrompt from "@/components/PWAInstallPrompt";
 
 
 const publicNav = [
@@ -352,6 +353,9 @@ export default function Layout({ children, currentPageName }) {
 
       {currentPageName !== "Chat" && <LiveChat />}
       {user?.role === 'admin' && <AdminSupportModal user={user} />}
+
+      {/* PWA Install Prompt — shown to non-installed visitors */}
+      <PWAInstallPrompt />
 
       {/* Footer */}
       {currentPageName !== "Chat" && (

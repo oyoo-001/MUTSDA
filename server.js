@@ -5,19 +5,24 @@ import { Server } from 'socket.io';
 import { Sequelize, DataTypes } from 'sequelize';
 import path from 'path';
 import { fileURLToPath } from 'url';
-import multer from 'multer';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import https from 'https';
 import dotenv from 'dotenv';
 import { v2 as cloudinary } from 'cloudinary';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
+import { upload, processFileUpload } from './utils/fileUploadMiddleware.js';
 import { Resend } from 'resend';
 import { OAuth2Client } from 'google-auth-library';
 import fs from 'fs';
 import nodemailer from 'nodemailer';
 import webPush from 'web-push';
+import axios from 'axios';
+import { createRequire } from 'module';
+
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+const mammoth = require('mammoth');
 
 dotenv.config();
 
@@ -284,6 +289,18 @@ const DirectMessage = sequelize.define('DirectMessage', {
     type: DataTypes.STRING(255),
     allowNull: true
   },
+  reply_to_message_id: {
+    type: DataTypes.INTEGER,
+    allowNull: true
+  },
+  reply_to_sender_name: {
+    type: DataTypes.STRING,
+    allowNull: true
+  },
+  reply_to_message_snippet: {
+    type: DataTypes.TEXT,
+    allowNull: true
+  },
   read: {
     type: DataTypes.BOOLEAN,
     defaultValue: false
@@ -320,17 +337,7 @@ cloudinary.config({
   api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-const storage = new CloudinaryStorage({
-  cloudinary: cloudinary,
-  params: async (req, file) => {
-    return {
-      folder: 'mutsda_uploads',
-      resource_type: 'auto', // Automatically detect image/video/raw
-      public_id: `${req.user ? req.user.id : 'anon'}-${Date.now()}-${file.originalname.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")}`,
-    };
-  },
-});
-const upload = multer({ storage: storage });
+// File upload middleware is now imported from fileUploadMiddleware.js
 
 const protect = async (req, res, next) => {
   let token;
@@ -916,6 +923,24 @@ const sermonController = {
 
       res.status(201).json(comment);
     } catch (err) { res.status(500).json({ message: 'Server Error' }); }
+  },
+  // Override create to fire push notification to all subscribers
+  create: async (req, res) => {
+    try {
+      const item = await Sermon.create(req.body);
+      if (req.app.get('io')) req.app.get('io').emit('sermons_updated');
+      if (item.published !== false) {
+        sendPushToAll({
+          title: `🎙️ New Sermon: ${item.title}`,
+          body: item.speaker ? `By ${item.speaker}` : 'A new sermon has been uploaded.',
+          url: '/sermons'
+        }).catch(err => console.error('[Push] Sermon broadcast failed:', err));
+      }
+      res.status(201).json(item);
+    } catch (err) {
+      console.error('Error in Sermon create:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
   }
 };
 
@@ -933,6 +958,25 @@ const eventController = {
       res.status(500).json({ message: 'Server Error' });
     }
   },
+  // Override create to fire push notification to all subscribers
+  create: async (req, res) => {
+    try {
+      const item = await Event.create(req.body);
+      if (req.app.get('io')) req.app.get('io').emit('events_updated');
+      if (item.published !== false) {
+        const dateStr = item.event_date ? new Date(item.event_date).toLocaleDateString('en-KE', { weekday: 'long', month: 'short', day: 'numeric' }) : '';
+        sendPushToAll({
+          title: `📅 New Event: ${item.title}`,
+          body: dateStr ? `Happening on ${dateStr}` : (item.description ? item.description.substring(0, 100) : 'A new church event has been added.'),
+          url: '/events'
+        }).catch(err => console.error('[Push] Event broadcast failed:', err));
+      }
+      res.status(201).json(item);
+    } catch (err) {
+      console.error('Error in Event create:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
 };
 
 const announcementController = {
@@ -946,6 +990,25 @@ const announcementController = {
       res.json(announcements);
     } catch (err) {
       console.error('Error in Announcement getAll:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  // Override create to fire push notification to all subscribers
+  create: async (req, res) => {
+    try {
+      const item = await Announcement.create(req.body);
+      if (req.app.get('io')) req.app.get('io').emit('announcements_updated');
+      // Fire push to all enabled subscribers (non-blocking)
+      if (item.published !== false) {
+        sendPushToAll({
+          title: `📢 ${item.title}`,
+          body: item.content ? item.content.replace(/<[^>]+>/g, '').substring(0, 120) : 'A new announcement has been posted.',
+          url: `/?announcement=${item.id}`
+        }).catch(err => console.error('[Push] Announcement broadcast failed:', err));
+      }
+      res.status(201).json(item);
+    } catch (err) {
+      console.error('Error in Announcement create:', err);
       res.status(500).json({ message: 'Server Error' });
     }
   },
@@ -1289,10 +1352,22 @@ const chatMessageController = {
       // This prevents support_ messages from leaking into the 'general' history fetch.
       const where = channel ? { channel } : { channel: 'general' };
 
-      const items = await ChatMessage.findAll({
+      const itemsRaw = await ChatMessage.findAll({
         where,
         order: [['created_date', 'DESC']],
         limit: 100
+      });
+      // Inflate replyTo for each message for frontend consistency
+      const items = itemsRaw.map(msg => {
+        const json = msg.toJSON();
+        if (json.reply_to_message_id) {
+          json.replyTo = {
+            id: json.reply_to_message_id,
+            sender_name: json.reply_to_sender_name,
+            message: json.reply_to_message_snippet
+          };
+        }
+        return json;
       });
       res.json(items);
     } catch (err) {
@@ -1370,6 +1445,49 @@ const chatGroupController = {
   },
 };
 
+/**
+ * Send a push notification to a single user.
+ * Auto-clears stale subscriptions (HTTP 404/410 from the push service).
+ */
+const sendPushToUser = async (userId, payload) => {
+  try {
+    const user = await User.findByPk(userId);
+    if (!user || !user.push_subscription || !user.push_notifications_enabled) return;
+
+    const subscription = JSON.parse(user.push_subscription);
+    await webPush.sendNotification(subscription, JSON.stringify(payload));
+  } catch (err) {
+    if (err.statusCode === 404 || err.statusCode === 410) {
+      console.log(`[Push] Subscription for user ${userId} is dead. Cleaning up...`);
+      await User.update({ push_subscription: null }, { where: { id: userId } });
+    } else {
+      console.error(`[Push] Unexpected error for user ${userId}:`, err.message);
+    }
+  }
+};
+
+/**
+ * Broadcast a push notification to EVERY user who has push enabled and a saved subscription.
+ * Fire-and-forget: individual failures are swallowed so one bad subscription can't block others.
+ * Returns { sent, total } for logging / admin feedback.
+ */
+const sendPushToAll = async (payload) => {
+  try {
+    const users = await User.findAll({
+      where: { push_notifications_enabled: true },
+      attributes: ['id'],
+    });
+    if (!users.length) return { sent: 0, total: 0 };
+    const results = await Promise.allSettled(users.map(u => sendPushToUser(u.id, payload)));
+    const sent = results.filter(r => r.status === 'fulfilled').length;
+    console.log(`[Push] Broadcast complete — ${sent}/${users.length} delivered.`);
+    return { sent, total: users.length };
+  } catch (err) {
+    console.error('[Push] Broadcast error:', err.message);
+    return { sent: 0, total: 0 };
+  }
+};
+
 const pushController = {
   subscribe: async (req, res) => {
     try {
@@ -1395,27 +1513,20 @@ const pushController = {
       console.error('Push Test Error:', err);
       res.status(500).json({ message: 'Server Error' });
     }
-  }
-};
-
-/**
- * Reusable helper to send push notifications.
- * Automatically clears push_subscription from the User record if the endpoint is dead.
- */
-const sendPushToUser = async (userId, payload) => {
-  try {
-    const user = await User.findByPk(userId);
-    if (!user || !user.push_subscription || !user.push_notifications_enabled) return;
-
-    const subscription = JSON.parse(user.push_subscription);
-    await webPush.sendNotification(subscription, JSON.stringify(payload));
-  } catch (err) {
-    // 404 (Not Found) or 410 (Gone) status codes mean the subscription is no longer valid
-    if (err.statusCode === 404 || err.statusCode === 410) {
-      console.log(`[Push] Subscription for user ${userId} is dead. Cleaning up...`);
-      await User.update({ push_subscription: null }, { where: { id: userId } });
-    } else {
-      console.error(`[Push] Unexpected error for user ${userId}:`, err.message);
+  },
+  // Admin: manually broadcast a custom push notification to all subscribers
+  broadcast: async (req, res) => {
+    try {
+      const { title, body, url } = req.body;
+      if (!title || !body) return res.status(400).json({ message: '"title" and "body" are required.' });
+      const result = await sendPushToAll({ title, body, url: url || '/' });
+      res.json({
+        message: `Push notification delivered to ${result.sent} of ${result.total} subscribers.`,
+        ...result
+      });
+    } catch (err) {
+      console.error('Push Broadcast Error:', err);
+      res.status(500).json({ message: 'Server Error' });
     }
   }
 };
@@ -1427,12 +1538,24 @@ const sendPushToUser = async (userId, payload) => {
 const authRouter = express.Router();
 authRouter.put('/me', protect, authController.updateMe);
 authRouter.put('/change-password', protect, authController.changePassword);
-authRouter.post('/me/photo', protect, upload.single('photo'), async (req, res) => {
+authRouter.post('/me/photo', protect, upload.single('photo'), processFileUpload, async (req, res) => {
   try {
     const user = await User.findByPk(req.user.id);
-    if (user && req.file) {
-      // Construct the URL to be stored
-      const fileUrl = req.file.path;
+    if (user && req.file && req.cloudinaryPreppedFile) {
+      const preppedData = req.cloudinaryPreppedFile;
+      
+      const result = await cloudinary.uploader.upload(preppedData.localPath, {
+        resource_type: preppedData.resourceType,
+        folder: preppedData.cloudinaryFolder,
+        access_mode: preppedData.accessMode,
+        public_id: `${req.user.id}-photo-${Date.now()}`
+      });
+      // Delete temporary local file
+      if (fs.existsSync(preppedData.localPath)) {
+        fs.unlinkSync(preppedData.localPath);
+      }
+
+      const fileUrl = result.secure_url;
       await user.update({ profile_photo_url: fileUrl });
       res.json({ file_url: fileUrl });
     } else {
@@ -1453,6 +1576,7 @@ authRouter.post('/verify-otp', authController.verifyOtp);
 authRouter.post('/reset-password', authController.resetPassword);
 authRouter.post('/push-subscribe', protect, pushController.subscribe);
 authRouter.post('/push-test', protect, pushController.test);
+authRouter.post('/push-broadcast', protect, admin, pushController.broadcast); // Admin: manually broadcast to all
 
 const sermonRouter = express.Router();
 sermonRouter.get('/', sermonController.getAll); // Public
@@ -1506,17 +1630,33 @@ rsvpRouter.post('/', protect, rsvpController.create);
 
 const chatRouter = express.Router();
 chatRouter.get('/', protect, chatMessageController.getAll); // Get all messages for a channel
-chatRouter.post('/upload', protect, upload.single('file'), (req, res) => {
-  if (!req.file) return res.status(400).json({ message: 'No file uploaded' });
+chatRouter.post('/upload', protect, upload.single('file'), processFileUpload, async (req, res) => {
+  if (!req.file || !req.cloudinaryPreppedFile) return res.status(400).json({ message: 'No file uploaded or file format unsupported.' });
 
-  const fileUrl = req.file.path;
-  const mimeType = req.file.mimetype;
-  let mediaType = 'file';
-  if (mimeType.startsWith('image/')) mediaType = 'image'; // includes gifs
-  else if (mimeType.startsWith('video/')) mediaType = 'video';
-  else if (mimeType.startsWith('audio/')) mediaType = 'audio';
+  try {
+    const preppedData = req.cloudinaryPreppedFile;
+    const result = await cloudinary.uploader.upload(preppedData.localPath, {
+      resource_type: preppedData.resourceType,
+      folder: preppedData.cloudinaryFolder,
+      access_mode: preppedData.accessMode,
+      public_id: `${req.user.id}-chat-${Date.now()}-${preppedData.originalName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")}`
+    });
 
-  res.json({ file_url: fileUrl, url: fileUrl, mediaType, filename: req.file.originalname });
+    // Clean up temporary server storage immediately
+    if (fs.existsSync(preppedData.localPath)) {
+      fs.unlinkSync(preppedData.localPath);
+    }
+
+    res.json({ 
+      file_url: result.secure_url, 
+      url: result.secure_url, 
+      mediaType: preppedData.chatMediaType, 
+      filename: preppedData.originalName 
+    });
+  } catch (err) {
+    console.error('Error in chat file upload:', err);
+    res.status(500).json({ message: 'Server error uploading chat file' });
+  }
 });
 
 const chatGroupRouter = express.Router();
@@ -1546,10 +1686,22 @@ dmRouter.get('/:channelId', protect, async (req, res) => {
       return res.status(403).json({ message: 'Access denied to this conversation.' });
     }
 
-    const messages = await DirectMessage.findAll({
+    const messagesRaw = await DirectMessage.findAll({
       where: { channel: channelId },
       order: [['created_date', 'ASC']],
       limit: 100,
+    });
+    // Inflate replyTo for each message for frontend consistency
+    const messages = messagesRaw.map(msg => {
+      const json = msg.toJSON();
+      if (json.reply_to_message_id) {
+        json.replyTo = {
+          id: json.reply_to_message_id,
+          sender_name: json.reply_to_sender_name,
+          message: json.reply_to_message_snippet
+        };
+      }
+      return json;
     });
     res.json(messages);
   } catch (err) {
@@ -2250,8 +2402,12 @@ io.on('connection', (socket) => {
         }
 
         const dmRecord = await DirectMessage.create(payload);
-
-        io.to(data.channel).emit('newMessage', dmRecord);
+        const inflatedMessage = dmRecord.toJSON();
+        
+        // Return original replyTo for frontend rendering consistency
+        if (replyTo) inflatedMessage.replyTo = replyTo;
+        
+        io.to(data.channel).emit('newMessage', inflatedMessage);
 
       } else {
         // General / group community chat
@@ -2264,7 +2420,12 @@ io.on('connection', (socket) => {
           messageData.reply_to_message_snippet = snippet || (replyTo.media_url ? (replyTo.media_filename || 'Attachment') : '');
         }
         const message = await ChatMessage.create(messageData);
-        io.to(data.channel || 'general').emit('newMessage', message);
+        const inflatedMessage = message.toJSON();
+        
+        // Return original replyTo for frontend rendering consistency
+        if (replyTo) inflatedMessage.replyTo = replyTo;
+        
+        io.to(data.channel || 'general').emit('newMessage', inflatedMessage);
       }
     } catch (err) {
       console.error('Socket sendMessage error:', err);
@@ -2298,7 +2459,7 @@ io.on('connection', (socket) => {
 
       if (!message) return;
 
-      const canDelete = user.role === 'admin' || user.email === message.sender_email;
+      const canDelete = user.role === 'admin' || user.email === message.sender_email; 
 
       if (canDelete) {
         await message.destroy();
@@ -2421,17 +2582,114 @@ app.set('io', io); // Make io accessible to the rest of the app if needed
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// -----------------------------------------------------------------------------
+// FILE EXTRACTION API (PDF/DOCX)
+// -----------------------------------------------------------------------------
+app.post('/api/files/extract-text', async (req, res) => {
+  try {
+    const { url } = req.body;
+    if (!url) return res.status(400).json({ error: 'No URL provided' });
+
+    // Stream the file downloaded from cloudinary or absolute URL
+    let fetchUrl = url;
+    
+    // If it's a Cloudinary URL, try to use the SDK's signing mechanism to bypass potential ACL restrictions
+    if (url.includes('res.cloudinary.com')) {
+      try {
+        const parts = url.split('/');
+        const uploadIndex = parts.indexOf('upload');
+        if (uploadIndex > -1) {
+          // Extraction of public_id from URL: /v[version]/[folder]/[name].[ext]
+          const publicIdWithExt = parts.slice(uploadIndex + 2).join('/');
+          const resourceType = parts[uploadIndex - 1]; // e.g. 'raw' or 'image'
+          
+          fetchUrl = cloudinary.url(publicIdWithExt, {
+            resource_type: resourceType,
+            secure: true,
+            sign_url: true
+          });
+        }
+      } catch (err) {
+        console.error("Cloudinary URL signing failed, fallback to original URL:", err.message);
+      }
+    }
+
+    const response = await axios.get(fetchUrl, { 
+      responseType: 'arraybuffer',
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+      }
+    });
+    const buffer = Buffer.from(response.data);
+
+    let text = '';
+    const lowerUrl = url.toLowerCase();
+    
+    // Defensive checks for mammoth (sometimes exports via .default in ESM/CJS require wrappers)
+    const mammothInstance = mammoth.extractRawText ? mammoth : (mammoth.default || mammoth);
+
+    if (lowerUrl.endsWith('.pdf')) {
+      let pdfData;
+      // Resilient PDF Parser Logic
+      try {
+        if (typeof pdfParse === 'function') {
+          pdfData = await pdfParse(buffer);
+        } else if (pdfParse?.default && typeof pdfParse.default === 'function') {
+          // Some ESM wrappers make the function the .default
+          pdfData = await pdfParse.default(buffer);
+        } else if (pdfParse?.PDFParse) {
+          // Support class-based parsers that might require 'new' or direct call
+          try {
+            pdfData = await pdfParse.PDFParse(buffer);
+          } catch (err) {
+            if (err.message.includes("Class constructor") || err.message.includes("without 'new'")) {
+              pdfData = new pdfParse.PDFParse(buffer);
+            } else throw err;
+          }
+        } else if (pdfParse?.parse && typeof pdfParse.parse === 'function') {
+          pdfData = await pdfParse.parse(buffer);
+        } else {
+          const structure = pdfParse ? Object.keys(pdfParse).join(', ') : 'null';
+          throw new Error(`PDF Parser found but not callable. Type: ${typeof pdfParse}, Keys: [${structure}]`);
+        }
+      } catch (err) {
+        console.error("PDF Parse error in strategy:", err.message);
+        throw err;
+      }
+      
+      // Handle various response formats (object with .text or string)
+      text = pdfData?.text || (typeof pdfData === 'string' ? pdfData : '');
+    } else if (lowerUrl.endsWith('.docx')) {
+      const docxData = await mammothInstance.extractRawText({ buffer });
+      text = docxData.value;
+    } else {
+      return res.status(400).json({ error: 'Unsupported file type. Only PDF and DOCX are supported.' });
+    }
+
+    res.json({ text: text.trim() });
+  } catch (error) {
+    console.error('File extraction error:', error);
+    res.status(500).json({ error: 'Failed to extract text from file' });
+  }
+});
+
 // 1. Serve static files from the 'dist' folder (Vite build output)
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // 2. Serve uploads if you still use local storage (though you use Cloudinary)
 app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
-// 3. Serve the service worker file for PWA functionality
+// Serve PWA files from root (must be before the SPA catch-all)
 app.get('/sw.js', (req, res) => {
+  res.setHeader('Service-Worker-Allowed', '/');
+  res.setHeader('Content-Type', 'application/javascript');
   res.sendFile(path.resolve(__dirname, 'sw.js'));
 });
-// 3. SPA Routing: MUST be the very last route. 
+app.get('/manifest.json', (req, res) => {
+  res.setHeader('Content-Type', 'application/manifest+json');
+  res.sendFile(path.resolve(__dirname, 'manifest.json'));
+});
+// SPA Routing: MUST be the very last route.
 
 app.get('*', async (req, res) => {
   const indexPath = path.join(__dirname, 'dist', 'index.html');

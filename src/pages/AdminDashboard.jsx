@@ -14,6 +14,7 @@ import AdminMedia from "@/components/admin/AdminMedia";
 import AdminMessages from "@/components/admin/AdminMessages";
 import AdminChatGroups from "@/components/admin/AdminChatGroups";
 import SupportAdmin from "@/components/admin/SupportAdmin";
+import AdminPushNotifications from "@/components/admin/AdminPushNotifications";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -164,6 +165,7 @@ export default function AdminDashboard() {
       case "chat-groups": return <AdminChatGroups chatGroups={chatGroups} members={members} />;
       case "streamer": return <Broadcaster streamId="sermon-live" />;
       case "support": return <SupportAdmin user={user} acceptUser={searchParams.get('acceptUser')} />;
+      case "push": return <AdminPushNotifications />;
       default: return <AdminOverview members={members} sermons={sermons} events={events} donations={donations} />;
     }
   };

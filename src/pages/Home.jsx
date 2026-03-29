@@ -9,6 +9,7 @@ import QuickInfoCards from "@/components/home/QuickInfoCards";
 import UpcomingEvents from "@/components/home/UpcomingEvents";
 import LatestSermons from "@/components/home/LatestSermons";
 import AnnouncementsBanner from "@/components/home/AnnouncementsBanner";
+import ProfileCompletionBanner from "@/components/home/ProfileCompletionBanner";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -217,6 +218,8 @@ const handleCopyLink = (id) => {
           <LatestSermons sermons={sermons} />
         </div>
       </section>
+
+      <ProfileCompletionBanner />
     </div>
   );
 }

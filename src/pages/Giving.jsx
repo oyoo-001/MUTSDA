@@ -31,6 +31,7 @@ export default function Giving() {
     donor_email: "",
   });
   const [submitting, setSubmitting] = useState(false);
+  const [waitingForPayment, setWaitingForPayment] = useState(false);
   const [done, setDone] = useState(false);
   
   // Use a state for reference to ensure it only changes when we want it to
@@ -104,8 +105,10 @@ export default function Giving() {
     } catch (err) {
       console.error("[Giving] verify error:", err);
       toast.error(err.message || "Payment received, but recording failed. Please contact support.");
+      setWaitingForPayment(false);
     } finally {
       setSubmitting(false);
+      setWaitingForPayment(false);
       // Generate a new reference for the next attempt
       setRef(`mutsda-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`);
     }
@@ -125,10 +128,12 @@ export default function Giving() {
       return;
     }
 
+    setWaitingForPayment(true);
     initializePayment({ 
       onSuccess: onPaystackSuccess, 
       onClose: () => {
         toast.info("Payment window closed.");
+        setWaitingForPayment(false);
         // Refresh reference in case they want to try again immediately
         setRef(`mutsda-${Date.now().toString(36)}`);
       } 
@@ -139,18 +144,23 @@ export default function Giving() {
     return (
       <div className="min-h-screen bg-[#faf8f2] flex flex-col items-center justify-center p-4">
         <motion.div 
-          initial={{ opacity: 0, scale: 0.9 }} 
-          animate={{ opacity: 1, scale: 1 }} 
-          className="max-w-md w-full text-center bg-white p-8 rounded-2xl shadow-sm border"
+          initial={{ opacity: 0, scale: 0.9, y: 20 }} 
+          animate={{ opacity: 1, scale: 1, y: 0 }} 
+          className="max-w-md w-full text-center bg-white p-10 rounded-3xl shadow-xl border border-gray-100"
         >
-          <CheckCircle2 className="w-20 h-20 text-green-500 mx-auto mb-6" />
-          <h2 className="text-2xl font-bold text-[#1a2744] mb-3">Donation Received!</h2>
-          <p className="text-gray-600 mb-2">
-            KES {parseFloat(form.amount).toLocaleString()} — {donationTypes.find(d => d.value === form.donation_type)?.label}
+          <div className="w-24 h-24 bg-green-50 rounded-full flex items-center justify-center mx-auto mb-6">
+            <CheckCircle2 className="w-12 h-12 text-green-500" />
+          </div>
+          <h2 className="text-3xl font-bold text-[#1a2744] mb-3">Thank You!</h2>
+          <p className="text-gray-600 mb-6 text-sm">
+            We have successfully received your generous {donationTypes.find(d => d.value === form.donation_type)?.label.toLowerCase()} of <br/>
+            <span className="font-bold text-lg text-[#c8a951]">KES {parseFloat(form.amount || 0).toLocaleString()}</span>
           </p>
-          <p className="text-sm text-gray-400 mb-8">A confirmation receipt has been recorded. God bless you!</p>
+          <div className="p-4 bg-gray-50 rounded-xl mb-8">
+            <p className="text-xs text-gray-500 italic">"Each of you should give what you have decided in your heart to give, not reluctantly or under compulsion, for God loves a cheerful giver." - 2 Corinthians 9:7</p>
+          </div>
           <Button 
-            className="w-full bg-[#1a2744]" 
+            className="w-full bg-[#1a2744] hover:bg-[#2d5f8a] rounded-xl h-12 text-md font-semibold" 
             onClick={() => { 
               setDone(false); 
               setForm({ ...form, amount: "" }); 
@@ -158,6 +168,54 @@ export default function Giving() {
           >
             Give Again
           </Button>
+        </motion.div>
+      </div>
+    );
+  }
+
+  if (waitingForPayment) {
+    return (
+      <div className="min-h-screen bg-[#1a2744] flex flex-col items-center justify-center p-6 text-white text-center relative overflow-hidden">
+        {/* Decorative background glow */}
+        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-[#c8a951]/10 blur-[100px] rounded-full point-events-none" />
+        
+        <motion.div 
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="relative z-10 flex flex-col items-center"
+        >
+          {submitting ? (
+            <>
+              <motion.div 
+                animate={{ rotate: 360 }}
+                transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
+                className="w-20 h-20 border-4 border-white/10 border-t-[#c8a951] rounded-full mb-8"
+              />
+              <h2 className="text-3xl font-bold font-serif mb-4">Verifying Payment...</h2>
+              <p className="text-blue-200/80 max-w-sm">Please hold on for just a moment while we securely process and record your donation.</p>
+            </>
+          ) : (
+            <>
+              <div className="relative mb-10">
+                <motion.div 
+                  animate={{ scale: [1, 1.2, 1], opacity: [0.5, 1, 0.5] }}
+                  transition={{ repeat: Infinity, duration: 2 }}
+                  className="absolute inset-0 bg-[#c8a951]/20 rounded-full blur-xl"
+                />
+                <div className="w-20 h-20 bg-[#1a2744] border-2 border-[#c8a951] rounded-full flex items-center justify-center relative z-10">
+                  <Heart className="w-8 h-8 text-[#c8a951] animate-pulse" />
+                </div>
+              </div>
+              <h2 className="text-3xl font-bold font-serif mb-4">Waiting for Payment</h2>
+              <p className="text-blue-200/80 max-w-sm leading-relaxed mb-8">
+                A secure payment window has been opened.<br/>Please complete your donation there.
+              </p>
+              <div className="bg-white/5 border border-white/10 rounded-2xl p-4 inline-flex items-center gap-3 backdrop-blur-sm">
+                <div className="w-2 h-2 rounded-full bg-[#c8a951] animate-ping" />
+                <span className="text-sm font-medium text-white/90">Do not refresh this page</span>
+              </div>
+            </>
+          )}
         </motion.div>
       </div>
     );

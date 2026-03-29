@@ -8,7 +8,7 @@ import {
   Paperclip, Smile, Image as ImageIcon, FileVideo, Trash2, FileText,
   Music, Download, Reply, Pencil, Bot, Sparkles, RefreshCw, ChevronDown, Search,
   MessageCircle, ArrowLeft,
-  Share2, Copy,
+  Share2, Copy, Play, Pause, Square, Headphones, Loader2, BookOpen
 } from "lucide-react";
 import EmojiPicker from 'emoji-picker-react';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -17,6 +17,7 @@ import { format, isToday, isYesterday, isSameDay } from 'date-fns';
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
+import { motion, AnimatePresence } from "framer-motion";
 
 // ── Media renderer ────────────────────────────────────────────────────────────
 const MessageMedia = ({ message, onMediaClick }) => {
@@ -34,14 +35,14 @@ const MessageMedia = ({ message, onMediaClick }) => {
   };
 
   const absoluteMediaUrl = getAbsoluteUrl(message.media_url);
-  const isAudio    = message.media_type?.startsWith('audio/');
-  const isVideo    = message.media_type?.startsWith('video/');
-  const isImage    = message.media_type?.startsWith('image/');
+  const isAudio = message.media_type?.startsWith('audio/');
+  const isVideo = message.media_type?.startsWith('video/');
+  const isImage = message.media_type?.startsWith('image/');
   const isDocument = !isAudio && !isVideo && !isImage;
 
   if (isImage) {
     return (
-      <div 
+      <div
         className="relative group max-w-xs my-1 rounded-lg overflow-hidden border bg-slate-50 shadow-sm cursor-pointer"
         onClick={() => onMediaClick?.({ url: absoluteMediaUrl, type: 'image', filename: message.media_filename })}
       >
@@ -82,7 +83,7 @@ const MessageMedia = ({ message, onMediaClick }) => {
   }
   if (isDocument) {
     return (
-      <div 
+      <div
         onClick={() => onMediaClick?.({ url: absoluteMediaUrl, type: 'document', filename: message.media_filename })}
         className="block bg-white border p-3 rounded-lg flex items-center gap-3 max-w-xs my-1 shadow-sm hover:bg-slate-50 transition-colors cursor-pointer"
       >
@@ -120,10 +121,10 @@ const formatAiText = (text) => {
   if (!text) return null;
   const lines = text.split('\n');
   return lines.map((line, lineIdx) => {
-    if (/^# (.+)/.test(line))   return <p key={lineIdx} className="font-bold text-[#1a2744] text-base mt-3 mb-1">{parseInline(line.replace(/^# /, ''))}</p>;
-    if (/^## (.+)/.test(line))  return <p key={lineIdx} className="font-bold text-[#2d5f8a] text-sm mt-2 mb-0.5">{parseInline(line.replace(/^## /, ''))}</p>;
+    if (/^# (.+)/.test(line)) return <p key={lineIdx} className="font-bold text-[#1a2744] text-base mt-3 mb-1">{parseInline(line.replace(/^# /, ''))}</p>;
+    if (/^## (.+)/.test(line)) return <p key={lineIdx} className="font-bold text-[#2d5f8a] text-sm mt-2 mb-0.5">{parseInline(line.replace(/^## /, ''))}</p>;
     if (/^### (.+)/.test(line)) return <p key={lineIdx} className="font-semibold text-[#c8a951] text-sm mt-1.5 mb-0.5">{parseInline(line.replace(/^### /, ''))}</p>;
-    if (/^> (.+)/.test(line))   return <p key={lineIdx} className="flex gap-2 my-1 bg-amber-50 border-l-4 border-[#c8a951] rounded-r-lg px-3 py-1.5"><span className="text-[#c8a951] font-bold shrink-0">❝</span><span className="text-[#1a2744] italic text-sm">{parseInline(line.replace(/^> /, ''))}</span></p>;
+    if (/^> (.+)/.test(line)) return <p key={lineIdx} className="flex gap-2 my-1 bg-amber-50 border-l-4 border-[#c8a951] rounded-r-lg px-3 py-1.5"><span className="text-[#c8a951] font-bold shrink-0">❝</span><span className="text-[#1a2744] italic text-sm">{parseInline(line.replace(/^> /, ''))}</span></p>;
     if (/^[\*\-] (.+)/.test(line)) return <p key={lineIdx} className="flex gap-2 my-0.5"><span className="text-[#c8a951] font-bold mt-0.5 shrink-0">•</span><span>{parseInline(line.replace(/^[\*\-] /, ''))}</span></p>;
     if (line.trim() === '') return <span key={lineIdx} className="block h-1.5" />;
     return <p key={lineIdx} className="my-0.5 leading-relaxed">{parseInline(line)}</p>;
@@ -152,12 +153,12 @@ const getDmChannelId = (emailA, emailB) => {
 
 // ── Standardized Reply Layer ───────────────────────────────────────────────
 const ReplyPreview = ({ senderName, message, isMe, onClick }) => (
-  <div 
+  <div
     onClick={onClick}
     className={cn(
       "mb-1.5 p-2 rounded-lg text-[11px] cursor-pointer hover:bg-black/5 transition-all border-l-[3px] animate-in slide-in-from-top-1 duration-200 shadow-sm",
-      isMe 
-        ? "bg-white/10 border-white/60 text-white/90" 
+      isMe
+        ? "bg-white/10 border-white/60 text-white/90"
         : "bg-slate-50 border-[#c8a951] text-slate-500"
     )}
   >
@@ -165,6 +166,162 @@ const ReplyPreview = ({ senderName, message, isMe, onClick }) => (
     <p className="line-clamp-1 italic opacity-90">{message || "Attachment"}</p>
   </div>
 );
+
+// ── Smart Document Reader Component ──────────────────────────────────────────
+const SmartDocumentReader = ({ fullScreenMedia }) => {
+  const [extractedText, setExtractedText] = useState("");
+  const [extracting, setExtracting] = useState(false);
+  const [playing, setPlaying] = useState(false);
+  const [error, setError] = useState(null);
+  const [viewMode, setViewMode] = useState("preview"); // "preview" or "text"
+  const utteranceRef = useRef(null);
+
+  useEffect(() => {
+    // Only extract if it's a PDF or DOCX
+    const lower = fullScreenMedia.url.toLowerCase();
+    if (!lower.endsWith('.pdf') && !lower.endsWith('.docx')) {
+      return;
+    }
+
+    const extractData = async () => {
+      setExtracting(true);
+      setError(null);
+      try {
+        const res = await fetch('/api/files/extract-text', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: fullScreenMedia.url })
+        });
+        const data = await res.json();
+        if (data.error) throw new Error(data.error);
+        setExtractedText(data.text);
+      } catch (err) {
+        console.error("Text Extraction Failed:", err);
+        setError("Smart extraction unavailable for this document.");
+      } finally {
+        setExtracting(false);
+      }
+    };
+    extractData();
+
+    return () => {
+      window.speechSynthesis.cancel();
+      setPlaying(false);
+    };
+  }, [fullScreenMedia.url]);
+
+  const toggleSpeech = () => {
+    if (playing) {
+      window.speechSynthesis.pause();
+      setPlaying(false);
+    } else {
+      if (window.speechSynthesis.paused && utteranceRef.current) {
+        window.speechSynthesis.resume();
+        setPlaying(true);
+      } else if (extractedText) {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(extractedText);
+        utterance.rate = 0.9;
+        utterance.onend = () => setPlaying(false);
+        utterance.onerror = () => setPlaying(false);
+        utteranceRef.current = utterance;
+        window.speechSynthesis.speak(utterance);
+        setPlaying(true);
+      }
+    }
+  };
+
+  const stopSpeech = () => {
+    window.speechSynthesis.cancel();
+    setPlaying(false);
+    utteranceRef.current = null;
+  };
+
+  return (
+    <div className="w-full h-full bg-white rounded-xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200 relative">
+      <div className="p-3 border-b flex justify-between items-center bg-slate-50 shrink-0 gap-2 flex-wrap">
+        <div className="flex items-center gap-2 overflow-hidden flex-1 min-w-[150px]">
+          <FileText className="w-4 h-4 text-[#c8a951] shrink-0" />
+          <span className="text-sm font-bold truncate text-slate-800">{fullScreenMedia.filename}</span>
+        </div>
+
+        <div className="flex items-center gap-2 shrink-0">
+          {extracting && <span className="text-xs text-slate-500 flex items-center gap-1 bg-slate-100 px-2 py-1 rounded-full"><Loader2 className="w-3 h-3 animate-spin" /> Extracting...</span>}
+          {error && <span className="text-[10px] text-red-500 max-w-[100px] leading-tight hidden md:inline">{error}</span>}
+
+          {extractedText && (
+            <div className="flex items-center gap-2 bg-white rounded-lg border shadow-sm p-1">
+              <Button
+                variant={viewMode === "preview" ? "default" : "ghost"}
+                size="sm"
+                className={cn("h-7 px-2 text-xs", viewMode === "preview" && "bg-slate-800")}
+                onClick={() => setViewMode("preview")}
+              >
+                Original
+              </Button>
+              <Button
+                variant={viewMode === "text" ? "default" : "ghost"}
+                size="sm"
+                className={cn("h-7 px-2 text-xs", viewMode === "text" && "bg-slate-800")}
+                onClick={() => setViewMode("text")}
+              >
+                <BookOpen className="w-3 h-3 mr-1" /> Reader Mode
+              </Button>
+
+              <div className="w-px h-4 bg-slate-200 mx-1"></div>
+
+              <Button
+                variant={playing ? "default" : "ghost"}
+                size="sm"
+                className={cn("h-7 px-2 text-xs", playing ? "bg-amber-500 hover:bg-amber-600 text-white" : "text-slate-600")}
+                onClick={toggleSpeech}
+                title={playing ? "Pause reading" : "Read out loud"}
+              >
+                {playing ? <Pause className="w-3 h-3 mr-1" /> : <Headphones className="w-3 h-3 mr-1" />}
+                {playing ? "Pause" : "Listen"}
+              </Button>
+
+              {(playing || (window.speechSynthesis.paused && utteranceRef.current)) && (
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-7 w-7 text-red-500 hover:text-red-600 hover:bg-red-50 ml-1"
+                  onClick={stopSpeech}
+                  title="Stop reading"
+                >
+                  <Square className="w-3 h-3 fill-current" />
+                </Button>
+              )}
+            </div>
+          )}
+
+          <a href={fullScreenMedia.url} target="_blank" rel="noopener noreferrer" className="text-xs text-blue-600 hover:underline font-medium px-2 shrink-0">
+            Open Web
+          </a>
+        </div>
+      </div>
+
+      <div className="flex-1 w-full bg-slate-100 flex items-center justify-center relative overflow-hidden">
+        {viewMode === "preview" ? (
+          <iframe
+            src={fullScreenMedia.url.toLowerCase().endsWith('.pdf') ? fullScreenMedia.url : `https://docs.google.com/gview?url=${encodeURIComponent(fullScreenMedia.url)}&embedded=true`}
+            className="w-full h-full border-none"
+            title="Document Viewer"
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full overflow-y-auto bg-[#faf9f6] p-6 md:p-12 custom-scrollbar">
+            <div className="max-w-3xl mx-auto">
+              <div className="prose prose-slate prose-p:leading-relaxed prose-p:text-slate-700 w-full whitespace-pre-wrap font-serif text-lg tracking-wide bg-white shadow-sm border p-8 md:p-16 rounded-xl min-h-full">
+                {extractedText}
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 // ── Main Chat Component ───────────────────────────────────────────────────────
 export default function Chat() {
@@ -189,6 +346,47 @@ export default function Chat() {
   const [viewingProfilePhoto, setViewingProfilePhoto] = useState(null);
   const [fullScreenMedia, setFullScreenMedia] = useState(null);
   const [zoomLevel, setZoomLevel] = useState(1);
+  const [showAttachmentMenu, setShowAttachmentMenu] = useState(false);
+  const [attachmentConfig, setAttachmentConfig] = useState(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [messageToDelete, setMessageToDelete] = useState(null);
+  const [hiddenMessages, setHiddenMessages] = useState(new Set());
+
+  // Load hidden messages from localStorage on mount
+  useEffect(() => {
+    const saved = localStorage.getItem('hidden_chat_messages');
+    if (saved) {
+      try {
+        setHiddenMessages(new Set(JSON.parse(saved)));
+      } catch (e) { }
+    }
+  }, []);
+
+  const hideMessageLocally = (id) => {
+    setHiddenMessages(prev => {
+      const next = new Set(prev);
+      next.add(id);
+      localStorage.setItem('hidden_chat_messages', JSON.stringify(Array.from(next)));
+      return next;
+    });
+  };
+
+  useEffect(() => {
+    if (attachmentConfig && fileInputRef.current) {
+      fileInputRef.current.click();
+    }
+  }, [attachmentConfig]);
+
+  const handleAttachmentOption = (type) => {
+    setShowAttachmentMenu(false);
+    let accept = "*/*";
+    if (type === 'image') accept = "image/*,.webp";
+    else if (type === 'video') accept = "video/*,.mkv";
+    else if (type === 'audio') accept = "audio/*";
+    else if (type === 'document') accept = ".pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip";
+
+    setAttachmentConfig({ accept, ts: Date.now() });
+  };
 
   // ── Mobile Gesture State ──────────────────────────────────────────────────
   const [touchState, setTouchState] = useState({ id: null, startX: 0, startY: 0, currentX: 0, isSwiping: false });
@@ -235,14 +433,13 @@ export default function Chat() {
     }
   };
 
-  const handleTouchEnd = (message, isDm = false) => {
+  const handleTouchEnd = (message) => {
     clearTimeout(longPressTimer.current);
     const deltaX = touchState.currentX - touchState.startX;
 
     if (deltaX > 70) {
       // Trigger Reply
-      if (isDm) setDmReplyingTo(message);
-      else setReplyingTo(message);
+      setReplyingTo(message);
       window.navigator.vibrate?.(30);
     }
 
@@ -258,27 +455,10 @@ export default function Chat() {
 
   // Scroll behavior state
   const [showScrollBottom, setShowScrollBottom] = useState(false);
-  const [dmShowScrollBottom, setDmShowScrollBottom] = useState(false);
   const [aiShowScrollBottom, setAiShowScrollBottom] = useState(false);
 
   const [memberSearch, setMemberSearch] = useState("");
-  // ── DM state ─────────────────────────────────────────────────────────────────
-  const [activeDm, setActiveDm] = useState(null); // { email, full_name, profile_photo_url, role }
-  const [dmMessages, setDmMessages] = useState([]);
-  const [dmInput, setDmInput] = useState("");
-  const [dmSending, setDmSending] = useState(false);
-  const [dmShowEmoji, setDmShowEmoji] = useState(false);
-  const [dmSelectedFile, setDmSelectedFile] = useState(null);
-  const [dmPreviewUrl, setDmPreviewUrl] = useState(null);
-  const [dmCaption, setDmCaption] = useState("");
-  const [dmTypingUsers, setDmTypingUsers] = useState(new Set());
-  const [dmReplyingTo, setDmReplyingTo] = useState(null);
-  const [dmEditingMessage, setDmEditingMessage] = useState(null);
-  const dmBottomRef = useRef(null);
-  const dmFileInputRef = useRef(null);
-  const dmTypingTimeoutRef = useRef(null);
-  const dmIsTypingRef = useRef(false);
-  // ─────────────────────────────────────────────────────────────────────────────
+
 
   // ── AI Chat state ─────────────────────────────────────────────────────────
   const [showAiChat, setShowAiChat] = useState(false);
@@ -319,20 +499,7 @@ export default function Chat() {
     }, []);
   }, [messages]);
 
-  const dmMessagesWithSeparators = useMemo(() => {
-    if (!dmMessages || dmMessages.length === 0) return [];
-    return dmMessages.reduce((acc, message, index) => {
-      const messageDate = new Date(message.created_date);
-      const prevMessage = dmMessages[index - 1];
-      const prevMessageDate = prevMessage ? new Date(prevMessage.created_date) : null;
-      if (!prevMessageDate || !isSameDay(messageDate, prevMessageDate)) {
-        let label = isToday(messageDate) ? 'Today' : isYesterday(messageDate) ? 'Yesterday' : format(messageDate, 'MMMM d, yyyy');
-        acc.push({ isDateSeparator: true, id: `dm-date-${message.id || index}`, label });
-      }
-      acc.push(message);
-      return acc;
-    }, []);
-  }, [dmMessages]);
+
 
   const sortedMembers = useMemo(() => {
     const onlineSet = new Set(onlineUsers.map(u => u.email));
@@ -413,25 +580,31 @@ export default function Chat() {
       } catch (e) { console.error("Cache read error", e); }
     }
 
-    apiClient.entities.ChatMessage.filter({ channel: channelId })
+    const isDm = channelId.startsWith('dm_');
+    const fetchPromise = isDm 
+      ? apiClient.get(`/api/dm/${channelId}`)
+      : apiClient.entities.ChatMessage.filter({ channel: channelId });
+
+    fetchPromise
       .then((response) => {
         const data = Array.isArray(response) ? response : (response?.data || response?.items || []);
-        const history = [...data].reverse();
+        // DMs come in ASC from server usually, ChatMessages come DESC. 
+        // Let's ensure a consistent render order (sender at bottom = ASC order in messagesData)
+        const history = isDm ? [...data] : [...data].reverse();
         setMessagesData(history);
         sessionStorage.setItem(cacheKey, JSON.stringify(history));
       })
       .catch(err => console.error("Failed to load chat history", err));
   };
 
-  // ── Socket listeners for group/general chat ───────────────────────────────
+  // ── Unified Socket listeners ───────────────────────────────
   useEffect(() => {
     if (!user) return;
     const socket = socketRef.current;
-    const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
+    const channelId = activeChannel.type === 'dm' ? activeChannel.id : (activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`);
+
     socket.emit('i_am_online', user);
     socket.emit("join", channelId);
-    setMessagesData([]);
-    fetchHistory(channelId);
 
     const handleNewMessage = (msg) => {
       if (msg.channel === channelId) {
@@ -439,17 +612,22 @@ export default function Chat() {
         if (msg.sender_email !== user.email) {
           const audio = new Audio("https://res.cloudinary.com/dxzmo0roe/video/upload/v1774549875/koiroylers-live-chat-353605_dro3qx.mp3");
           audio.volume = 0.5;
-          audio.play().catch(() => {});
+          audio.play().catch(() => { });
           if (document.hidden && Notification.permission === "granted") {
             new Notification(`New message from ${msg.sender_name}`, { body: msg.message || "Sent an attachment" });
           }
-            if (msg.reply_to_sender_name === user.full_name) toast.info(`${msg.sender_name} replied to your message!`);
+          if (msg.reply_to_sender_name === user.full_name) toast.info(`${msg.sender_name} replied to your message!`);
         }
       } else if (msg.channel?.startsWith('group_')) {
         const groupId = msg.channel.replace('group_', '');
         setUnreadCounts(prev => ({
           ...prev,
           [groupId]: (prev[groupId] || 0) + 1,
+        }));
+      } else if (msg.channel?.startsWith('dm_') && msg.sender_email !== user.email) {
+        setUnreadCounts(prev => ({
+          ...prev,
+          [msg.channel]: (prev[msg.channel] || 0) + 1,
         }));
       }
     };
@@ -499,155 +677,7 @@ export default function Chat() {
   };
 
 
-  // ── DM socket listeners ───────────────────────────────────────────────────
-  useEffect(() => {
-    if (!user || !activeDm) return;
-    const socket = socketRef.current;
-    const dmChannelId = getDmChannelId(user.email, activeDm.email);
 
-    socket.emit("join", dmChannelId);
-    setDmMessages([]);
-
-    // Fetch DM history
-    const cacheKey = `dm_cache_${dmChannelId}`;
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-      try {
-        setDmMessages(JSON.parse(cached));
-      } catch (e) { console.error("DM cache read error", e); }
-    }
-
-    apiClient.entities.DirectMessage.getHistory(dmChannelId)
-    .then((data) => {
-      const history = Array.isArray(data) ? data : [];
-      setDmMessages(history);
-      sessionStorage.setItem(cacheKey, JSON.stringify(history));
-    })
-      .catch(err => console.error("Failed to load DM history", err));
-
-    const handleDmNewMessage = (msg) => {
-      if (msg.channel === dmChannelId) {
-        setDmMessages(prev => [...prev, msg]);
-        if (msg.sender_email !== user.email && document.hidden && Notification.permission === "granted") {
-          new Notification(`New DM from ${msg.sender_name}`, { 
-            body: msg.message || "Sent an attachment",
-            icon: msg.sender_profile_photo_url || "/church-logo.png"
-          });
-        }
-        if (msg.sender_email !== user.email) {
-          const audio = new Audio("https://res.cloudinary.com/dxzmo0roe/video/upload/v1774549875/koiroylers-live-chat-353605_dro3qx.mp3");
-          audio.volume = 0.5;
-          audio.play().catch(() => {});
-        }
-      } else if (msg.channel?.startsWith('dm_') && msg.sender_email !== user.email) {
-        // Unread DM badge
-        setUnreadCounts(prev => ({ ...prev, [msg.channel]: (prev[msg.channel] || 0) + 1 }));
-      }
-    };
-    const handleDmTyping = (data) => {
-      if (data.channel === dmChannelId && data.sender_name) {
-        setDmTypingUsers(prev => new Set([...prev, data.sender_name]));
-      }
-    };
-    const handleDmStopTyping = (data) => {
-      if (data.channel === dmChannelId && data.sender_name) {
-        setDmTypingUsers(prev => { const next = new Set(prev); next.delete(data.sender_name); return next; });
-      }
-    };
-
-    const handleDmUpdated = (data) => {
-      if (data.channel === dmChannelId) {
-        setDmMessages(prev => prev.map(m => m.id === data.id ? { ...m, message: data.message } : m));
-      }
-    };
-
-    const handleDmDeleted = (data) => {
-      if (data.channel === dmChannelId) {
-        setDmMessages(prev => prev.filter(m => m.id !== data.messageId));
-      }
-    };
-
-    socket.on("newMessage", handleDmNewMessage);
-    socket.on("messageUpdated", handleDmUpdated);
-    socket.on("messageDeleted", handleDmDeleted);
-    socket.on("typing", handleDmTyping);
-    socket.on("stopTyping", handleDmStopTyping);
-
-    return () => {
-      socket.off("newMessage", handleDmNewMessage);
-      socket.off("messageUpdated", handleDmUpdated);
-      socket.off("messageDeleted", handleDmDeleted);
-      socket.off("typing", handleDmTyping);
-      socket.off("stopTyping", handleDmStopTyping);
-    };
-  }, [user, activeDm]);
-
-  // ── DM send ───────────────────────────────────────────────────────────────
-  const sendDmMessage = (e) => {
-    e?.preventDefault();
-    if (!dmInput.trim() || !user || !activeDm) return;
-    const dmChannelId = getDmChannelId(user.email, activeDm.email);
-
-    if (dmEditingMessage) {
-      socketRef.current.emit("editMessage", { messageId: dmEditingMessage.id, newMessage: dmInput.trim(), userEmail: user.email });
-      setDmEditingMessage(null);
-    } else {
-      const payload = {
-      message: dmInput.trim(),
-      sender_name: user.full_name,
-      sender_email: user.email,
-      sender_profile_photo_url: user.profile_photo_url,
-      channel: dmChannelId,
-      };
-      if (dmReplyingTo) {
-        payload.replyTo = {
-          id: dmReplyingTo.id,
-          sender_name: dmReplyingTo.sender_name,
-          message: dmReplyingTo.message,
-        };
-      }
-      socketRef.current.emit("sendMessage", payload);
-    }
-
-    setDmInput("");
-    setDmReplyingTo(null);
-    if (dmIsTypingRef.current) {
-      dmIsTypingRef.current = false;
-      socketRef.current.emit("stopTyping", { sender_name: user.full_name, channel: dmChannelId });
-    }
-  };
-
-  const handleDmInputChange = (e) => {
-    setDmInput(e.target.value);
-    if (!activeDm || !user) return;
-    const dmChannelId = getDmChannelId(user.email, activeDm.email);
-    if (!dmIsTypingRef.current) {
-      dmIsTypingRef.current = true;
-      socketRef.current.emit("typing", { sender_name: user.full_name, channel: dmChannelId });
-    }
-    if (dmTypingTimeoutRef.current) clearTimeout(dmTypingTimeoutRef.current);
-    dmTypingTimeoutRef.current = setTimeout(() => {
-      dmIsTypingRef.current = false;
-      socketRef.current.emit("stopTyping", { sender_name: user.full_name, channel: dmChannelId });
-    }, 2000);
-  };
-
-  const handleDmFileSelect = (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    if (file.size > 25 * 1024 * 1024) { toast.error("File is too large (max 25MB)."); return; }
-    setDmSelectedFile(file);
-    setDmPreviewUrl(URL.createObjectURL(file));
-    setDmCaption("");
-  };
-
-  const handleDmCancelPreview = () => {
-    if (dmPreviewUrl) URL.revokeObjectURL(dmPreviewUrl);
-    setDmSelectedFile(null);
-    setDmPreviewUrl(null);
-    setDmCaption("");
-    if (dmFileInputRef.current) dmFileInputRef.current.value = "";
-  };
 
   // AI File Handlers
   const handleAiFileSelect = (e) => {
@@ -660,38 +690,7 @@ export default function Chat() {
 
   const handleAiCancelPreview = () => { setAiSelectedFile(null); setAiPreviewUrl(null); setAiCaption(""); };
 
-  const handleDmSendMedia = async () => {
-    if (!dmSelectedFile || !user || !activeDm) return;
-    setDmSending(true);
-    try {
-      const dmChannelId = getDmChannelId(user.email, activeDm.email);
-      const { file_url } = await apiClient.integrations.Core.UploadFile({ file: dmSelectedFile });
-      if (!file_url) throw new Error("File upload failed, no URL returned.");
-      const payload = {
-        message: dmCaption,
-        sender_name: user.full_name,
-        sender_email: user.email,
-        sender_profile_photo_url: user.profile_photo_url,
-        channel: dmChannelId,
-        media_url: file_url,
-        media_filename: dmSelectedFile.name,
-        media_type: dmSelectedFile.type,
-      };
-      if (dmReplyingTo) {
-        payload.replyTo = {
-          id: dmReplyingTo.id,
-          sender_name: dmReplyingTo.sender_name,
-          message: dmReplyingTo.message,
-        };
-      }
-      socketRef.current.emit("sendMessage", payload);
-      handleDmCancelPreview();
-    } catch (error) {
-      toast.error(error.message || "Failed to upload file.");
-    } finally {
-      setDmSending(false);
-    }
-  };
+
 
   const handleAiSendMedia = async () => {
     if (!aiSelectedFile || !user) return;
@@ -700,10 +699,10 @@ export default function Chat() {
       const { file_url } = await apiClient.integrations.Core.UploadFile({ file: aiSelectedFile });
       // Include file info in the AI prompt context
       const prompt = aiCaption ? `${aiCaption} (Attached file: ${aiSelectedFile.name})` : `Analyzing file: ${aiSelectedFile.name}`;
-      
+
       const historySnapshot = aiMessages.map(m => ({ role: m.role, content: m.content }));
       setAiMessages(prev => [...prev, { role: 'user', content: prompt, id: Date.now() }]);
-      
+
       const data = await apiClient.aiChat.send(prompt, historySnapshot);
       setAiMessages(prev => [...prev, { role: 'model', content: data.reply, id: data.messageId }]);
       handleAiCancelPreview();
@@ -712,24 +711,15 @@ export default function Chat() {
     } finally { setAiSending(false); }
   };
 
-  // Auto scroll DMs
-  useEffect(() => {
-    dmBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [dmMessages, dmTypingUsers]);
+  // Auto scroll - now handled by unified bottomRef scroll effect
 
   // ── Open DM ───────────────────────────────────────────────────────────────
   const handleOpenDm = (member) => {
     if (member.email === user?.email) return;
-    setActiveDm(member);
     const dmChannelId = getDmChannelId(user.email, member.email);
-    setUnreadCounts(prev => ({ ...prev, [dmChannelId]: 0 }));
+    setActiveChannel({ id: dmChannelId, name: member.full_name, type: 'dm', targetUser: member });
+    setUnreadCounts(prev => { const next = { ...prev }; delete next[dmChannelId]; return next; });
     setShowMobileUsers(false);
-  };
-
-  const handleCloseDm = () => {
-    setActiveDm(null);
-    setDmMessages([]);
-    setDmInput("");
   };
 
   // DM unread count helper
@@ -743,40 +733,46 @@ export default function Chat() {
 
   useEffect(() => {
     const fetchChatHistory = async (targetChannelId) => {
-      const channelId = targetChannelId || (activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`);
+      const channelId = targetChannelId || activeChannel.id;
       if (!channelId) return;
 
-        const cacheKey = `chat_cache_${channelId}`;
-        const cached = sessionStorage.getItem(cacheKey);
-        if (cached) {
-          try {
-            setMessagesData(JSON.parse(cached));
-          } catch (e) { console.error("Fetch cache read error", e); }
-        }
+      const formattedChannelId = (channelId === 'general' || channelId.startsWith('group_') || channelId.startsWith('dm_')) 
+          ? channelId 
+          : `group_${channelId}`;
+      
+      const cacheKey = `chat_cache_${formattedChannelId}`;
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        try {
+          setMessagesData(JSON.parse(cached));
+        } catch (e) { console.error("Fetch cache read error", e); }
+      }
 
       try {
         let data;
 
-        if (channelId.startsWith('dm_')) {
+        if (formattedChannelId.startsWith('dm_')) {
           // Use the new Direct Message route
-          data = await apiClient.entities.DirectMessage.getHistory(channelId);
+          data = await apiClient.entities.DirectMessage.getHistory(formattedChannelId);
           
           // Also mark as read when opening the conversation
-          await apiClient.entities.DirectMessage.markAsRead(channelId);
+          await apiClient.entities.DirectMessage.markAsRead(formattedChannelId);
         } else {
           // Use the standard ChatMessage entity for general/groups. 
           // The generic controller returns newest first (DESC), so we reverse it.
           data = await apiClient.entities.ChatMessage.filter({ 
-            channel: channelId 
+            channel: formattedChannelId 
           });
         }
 
         // Defensive check: Ensure we always set an array to avoid the "prev is not iterable" crash
         let messagesArray = Array.isArray(data) ? data : (data?.data || []);
-        if (!channelId.startsWith('dm_')) messagesArray = [...messagesArray].reverse();
+        if (!formattedChannelId.startsWith('dm_')) messagesArray = [...messagesArray].reverse();
         
         setMessagesData(messagesArray);
         
+        // Cache the history
+        sessionStorage.setItem(cacheKey, JSON.stringify(messagesArray));
       } catch (err) {
         console.error("Failed to load chat history:", err);
         setMessagesData([]); // Reset to empty array so the UI doesn't crash
@@ -784,16 +780,15 @@ export default function Chat() {
       }
     };
 
-    const targetId = activeDm ? getDmChannelId(user.email, activeDm.email) : null;
-    fetchChatHistory(targetId);
-  }, [activeDm, activeChannel, user]);
+    fetchChatHistory(activeChannel.id);
+  }, [activeChannel, user]);
 
   // ── Group/General typing handler ──────────────────────────────────────────
   const handleInputChange = (e) => {
     setInput(e.target.value);
     if (!user) return;
     const socket = socketRef.current;
-    const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
+    const channelId = activeChannel.id === 'general' ? 'general' : (activeChannel.id.startsWith('group_') || activeChannel.id.startsWith('dm_') ? activeChannel.id : `group_${activeChannel.id}`);
     if (!isTypingRef.current) {
       isTypingRef.current = true;
       socket.emit("typing", { sender_name: user.full_name || "User", channel: channelId });
@@ -842,7 +837,7 @@ export default function Chat() {
     if (!selectedFile || !user) return;
     setSending(true);
     try {
-      const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
+      const channelId = activeChannel.id === 'general' ? 'general' : (activeChannel.id.startsWith('group_') || activeChannel.id.startsWith('dm_') ? activeChannel.id : `group_${activeChannel.id}`);
       const { file_url } = await apiClient.integrations.Core.UploadFile({ file: selectedFile });
       if (!file_url) throw new Error("File upload failed, no URL returned.");
       const payload = {
@@ -879,7 +874,10 @@ export default function Chat() {
     if (!input.trim() || !user) return;
     const socket = socketRef.current;
     setSending(true);
-    const channelId = activeChannel.id === 'general' ? 'general' : `group_${activeChannel.id}`;
+
+    // Channel ID is now directly from activeChannel (already properly formatted)
+    const channelId = activeChannel.id === 'general' ? 'general' : (activeChannel.id.startsWith('group_') || activeChannel.id.startsWith('dm_') ? activeChannel.id : `group_${activeChannel.id}`);
+
     if (editingMessage) {
       socket.emit("editMessage", { messageId: editingMessage.id, newMessage: input.trim(), userEmail: user.email });
       handleCancelEdit();
@@ -908,11 +906,24 @@ export default function Chat() {
     setSending(false);
   };
 
-  const handleDeleteMessage = (message) => {
-    if (!user) return;
-    if (confirm("Are you sure you want to delete this message? This cannot be undone.")) {
-      socketRef.current.emit("deleteMessage", { messageId: message.id, userEmail: user.email });
+  const handleDeleteMessage = (msg) => {
+    setMessageToDelete(msg);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDelete = (mode) => {
+    if (!messageToDelete) return;
+    
+    if (mode === 'everyone') {
+      socketRef.current.emit("deleteMessage", { messageId: messageToDelete.id, userEmail: user.email });
+    } else {
+      // Delete for Me (Local only)
+      hideMessageLocally(messageToDelete.id);
+      toast.info("Message hidden for you.");
     }
+    
+    setShowDeleteConfirm(false);
+    setMessageToDelete(null);
   };
 
   const handleEditMessage = (message) => {
@@ -999,7 +1010,7 @@ export default function Chat() {
 
 
   return (
-    <div className="h-[calc(100vh-8rem)] flex flex-col bg-white relative">
+    <div className="h-[calc(100dvh-64px)] flex flex-col bg-white relative">
 
       {/* Unauthorized Overlay */}
       {!user && (
@@ -1030,30 +1041,19 @@ export default function Chat() {
         />
       )}
 
-      {/* DM Media Preview Modal */}
-      {dmSelectedFile && (
-        <MediaPreviewModal
-          selectedFile={dmSelectedFile}
-          previewUrl={dmPreviewUrl}
-          caption={dmCaption}
-          setCaption={setDmCaption}
-          onCancel={handleDmCancelPreview}
-          onSend={handleDmSendMedia}
-          sending={dmSending}
-        />
-    )}
 
-    {/* AI Media Preview Modal */}
-    {aiSelectedFile && (
-      <MediaPreviewModal
-        selectedFile={aiSelectedFile}
-        previewUrl={aiPreviewUrl}
-        caption={aiCaption}
-        setCaption={setAiCaption}
-        onCancel={handleAiCancelPreview}
-        onSend={handleAiSendMedia}
-        sending={aiSending}
-      />
+
+      {/* AI Media Preview Modal */}
+      {aiSelectedFile && (
+        <MediaPreviewModal
+          selectedFile={aiSelectedFile}
+          previewUrl={aiPreviewUrl}
+          caption={aiCaption}
+          setCaption={setAiCaption}
+          onCancel={handleAiCancelPreview}
+          onSend={handleAiSendMedia}
+          sending={aiSending}
+        />
       )}
 
       {/* Profile Photo Viewer */}
@@ -1076,7 +1076,7 @@ export default function Chat() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+                className="bg-[#1a2744] hover:bg-[#2d5f8a] text-[#c8a951] rounded-full transition-all shadow-xl border border-[#c8a951]/20"
                 title="Share"
                 onClick={async () => {
                   const shareData = {
@@ -1098,36 +1098,25 @@ export default function Chat() {
               >
                 <Share2 className="w-5 h-5" />
               </Button>
-              <a href={fullScreenMedia.url} download={fullScreenMedia.filename} target="_blank" rel="noopener noreferrer" className="bg-white/10 hover:bg-white/20 text-white p-2 rounded-full transition-colors flex items-center justify-center" title="Download">
+              <a href={fullScreenMedia.url} download={fullScreenMedia.filename} target="_blank" rel="noopener noreferrer" className="bg-[#1a2744] hover:bg-[#2d5f8a] text-[#c8a951] p-2 rounded-full transition-all shadow-xl border border-[#c8a951]/20 flex items-center justify-center w-9 h-9" title="Download">
                 <Download className="w-5 h-5" />
               </a>
-              <Button variant="ghost" size="icon" onClick={() => { setFullScreenMedia(null); setZoomLevel(1); }} className="text-white hover:bg-white/20 rounded-full">
+              <Button variant="ghost" size="icon" onClick={() => { setFullScreenMedia(null); setZoomLevel(1); }} className="bg-[#1a2744] hover:bg-red-600 text-[#c8a951] hover:text-white rounded-full transition-all shadow-xl border border-[#c8a951]/20">
                 <X className="w-6 h-6" />
               </Button>
             </div>
 
             {fullScreenMedia.type === 'image' ? (
               <div className="w-full h-full flex items-center justify-center overflow-auto custom-scrollbar">
-                <img 
-                  src={fullScreenMedia.url} 
-                  alt={fullScreenMedia.filename} 
-                  className={cn("max-w-full max-h-full object-contain rounded-lg shadow-2xl transition-transform duration-300", zoomLevel > 1 ? "scale-[2] cursor-zoom-out" : "cursor-zoom-in")} 
+                <img
+                  src={fullScreenMedia.url}
+                  alt={fullScreenMedia.filename}
+                  className={cn("max-w-full max-h-full object-contain rounded-lg shadow-2xl transition-transform duration-300", zoomLevel > 1 ? "scale-[2] cursor-zoom-out" : "cursor-zoom-in")}
                   onClick={() => setZoomLevel(prev => prev === 1 ? 2 : 1)}
                 />
               </div>
             ) : fullScreenMedia.type === 'document' ? (
-              <div className="w-full h-full bg-white rounded-xl overflow-hidden shadow-2xl flex flex-col animate-in zoom-in-95 duration-200">
-                <div className="p-3 border-b flex justify-between items-center bg-gray-50 shrink-0">
-                  <div className="flex items-center gap-2 px-2 overflow-hidden">
-                    <FileText className="w-4 h-4 text-[#c8a951] shrink-0" />
-                    <span className="text-xs md:text-sm font-semibold truncate text-slate-700">{fullScreenMedia.filename}</span>
-                  </div>
-                  <a href={fullScreenMedia.url} target="_blank" rel="noopener noreferrer" className="text-[10px] md:text-xs text-blue-600 hover:underline font-medium shrink-0 px-2">
-                    Open Original
-                  </a>
-                </div>
-                <iframe src={fullScreenMedia.url.toLowerCase().endsWith('.pdf') ? fullScreenMedia.url : `https://docs.google.com/gview?url=${encodeURIComponent(fullScreenMedia.url)}&embedded=true`} className="flex-1 w-full border-none" title="Document Viewer" loading="lazy" />
-              </div>
+              <SmartDocumentReader fullScreenMedia={fullScreenMedia} />
             ) : null}
           </div>
         </div>
@@ -1199,8 +1188,8 @@ export default function Chat() {
                 </div>
               )}
               {aiShowScrollBottom && (
-                <Button 
-                  size="icon" 
+                <Button
+                  size="icon"
                   className="fixed bottom-20 right-8 rounded-full shadow-lg bg-[#c8a951] hover:bg-[#b09440] animate-in slide-in-from-bottom-4 duration-300"
                   onClick={() => aiBottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
                 >
@@ -1221,14 +1210,14 @@ export default function Chat() {
               </div>
               {aiShowEmoji && (
                 <div className="absolute bottom-20 left-4 z-[90] shadow-2xl rounded-xl">
-                  <EmojiPicker 
-                    onEmojiClick={(d) => { setAiInput(p => p + d.emoji); setAiShowEmoji(false); }} 
-                    width={300} 
-                    height={400} 
+                  <EmojiPicker
+                    onEmojiClick={(d) => { setAiInput(p => p + d.emoji); setAiShowEmoji(false); }}
+                    width={300}
+                    height={400}
                   />
                 </div>
               )}
-              <textarea 
+              <textarea
                 ref={aiInputRef}
                 value={aiInput}
                 onChange={e => { setAiInput(e.target.value); e.target.style.height = 'auto'; e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px'; }}
@@ -1247,204 +1236,39 @@ export default function Chat() {
         </div>
       )}
 
-      {/* ── DM Panel ──────────────────────────────────────────────────────────── */}
-      {activeDm && (
-        <div className="absolute inset-0 z-[75] flex items-end md:items-center justify-center bg-black/50 backdrop-blur-sm animate-in fade-in duration-200 p-0 md:p-4">
-          <div className="bg-white w-full md:max-w-lg md:rounded-2xl shadow-2xl flex flex-col h-full md:h-[85vh] overflow-hidden">
-            {/* DM Header */}
-            <div className="flex items-center gap-3 px-4 py-3 bg-[#1a2744] text-white shrink-0">
-              <button onClick={handleCloseDm} className="p-1.5 rounded-full hover:bg-white/20 transition-colors mr-1">
-                <ArrowLeft className="w-4 h-4" />
-              </button>
-              <div className={cn("w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold overflow-hidden shrink-0 relative", !activeDm.profile_photo_url && getColor(activeDm.email))}>
-                {activeDm.profile_photo_url ? (
-                  <img src={activeDm.profile_photo_url} alt={activeDm.full_name} className="w-full h-full object-cover" />
-                ) : (
-                  getInitials(activeDm.full_name)
-                )}
-                {isUserOnline(activeDm.email) && (
-                  <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-400 border-2 border-[#1a2744]"></span>
-                )}
-              </div>
-              <div className="flex-1 min-w-0">
-                <p className="font-bold text-sm leading-tight truncate">{activeDm.full_name}</p>
-                <p className="text-[11px] text-white/70">{isUserOnline(activeDm.email) ? '🟢 Online' : 'Offline'}</p>
-              </div>
-              <button onClick={handleCloseDm} className="p-1.5 rounded-full hover:bg-white/20 transition-colors ml-auto">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* DM Messages */}
-            <div className="flex-1 overflow-y-auto p-4 space-y-2 bg-gradient-to-b from-[#efeae2] to-[#e0dbd3] relative" onScroll={(e) => handleScroll(e, setDmShowScrollBottom)} style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Cg fill-opacity='0.03'%3E%3Cpolygon points='30 55 0 41.25 0 9.75 30 0 60 9.75 60 41.25' fill='%23fff'/%3E%3C/g%3E%3C/svg%3E")`,
-            }}>
-              {dmMessages.length === 0 && (
-                <div className="flex flex-col items-center justify-center h-full text-center space-y-4 animate-in fade-in zoom-in duration-300 py-10 opacity-60">
-                  <div className="w-20 h-20 rounded-full bg-white/50 flex items-center justify-center shadow-inner border border-white/20">
-                    <MessageCircle className="w-10 h-10 text-[#1a2744]" />
-                  </div>
-                  <div>
-                    <p className="text-xl font-bold text-[#1a2744]">Start chatting with {activeDm.full_name}</p>
-                    <p className="text-sm text-gray-600 mt-1">Send a message to begin your conversation.</p>
-                  </div>
-                </div>
-              )}
-
-              {dmMessagesWithSeparators.map((item, idx) => {
-                if (item.isDateSeparator) {
-                  return (
-                    <div key={item.id} className="relative text-center my-4">
-                      <div className="flex items-center gap-2">
-                        <div className="flex-1 h-px bg-gray-300/50"></div>
-                        <span className="bg-gray-200/70 px-3 py-1 text-xs font-semibold text-gray-600 rounded-full">{item.label}</span>
-                        <div className="flex-1 h-px bg-gray-300/50"></div>
-                      </div>
-                    </div>
-                  );
-                }
-                const msg = item;
-                const isMe = msg.sender_email === user?.email;
-                const swipeOffset = touchState.id === msg.id ? Math.min(touchState.currentX - touchState.startX, 100) : 0;
-
-                return (
-                  <div 
-                    id={`message-dm-${msg.id}`} 
-                    key={msg.id || idx} 
-                    className={cn("flex items-end gap-2 group relative transition-transform duration-100", isMe ? "flex-row-reverse justify-start" : "flex-row justify-start")}
-                    style={{ transform: `translateX(${swipeOffset}px)` }}
-                    onTouchStart={(e) => handleTouchStart(e, msg)}
-                    onTouchMove={handleTouchMove}
-                    onTouchEnd={() => handleTouchEnd(msg, true)}
-                  >
-                    {swipeOffset > 20 && (
-                      <div className="absolute left-[-40px] top-1/2 -translate-y-1/2 opacity-50">
-                        <Reply className={cn("w-5 h-5 transition-all", swipeOffset > 70 ? "text-blue-500 scale-125 opacity-100" : "text-gray-400")} />
-                      </div>
-                    )}
-                    <div className={cn("w-7 h-7 rounded-full flex items-center justify-center text-white text-[10px] font-bold shrink-0 overflow-hidden", !msg.sender_profile_photo_url && getColor(msg.sender_email))}>
-                      {msg.sender_profile_photo_url ? <img src={msg.sender_profile_photo_url} alt={msg.sender_name} className="w-full h-full object-cover" /> : getInitials(msg.sender_name)}
-                    </div>
-                    <div className={cn("flex flex-col max-w-xs lg:max-w-md", isMe ? "items-end" : "items-start")}>
-                      <div className={cn("relative rounded-2xl text-sm shadow-md leading-relaxed", isMe ? "bg-[#0084ff] text-white rounded-br-none" : "bg-white text-gray-800 rounded-bl-none border border-gray-200")}>
-                        {msg.reply_to_message_id && (
-                          <div className="pt-1 px-1">
-                            <ReplyPreview 
-                                senderName={msg.reply_to_sender_name} 
-                                message={msg.reply_to_message_snippet} 
-                                isMe={isMe} 
-                                onClick={() => handleScrollToMessage(msg.reply_to_message_id, "message-dm")} 
-                            />
-                          </div>
-                        )}
-                        {msg.media_url && <MessageMedia message={msg} onMediaClick={setFullScreenMedia} />}
-                        {msg.message && <p className="break-words px-3 py-2">{msg.message}</p>}
-                      </div>
-                      <span className="text-[10px] text-gray-500 mt-1 px-2">{msg.created_date ? format(new Date(msg.created_date), "h:mm a") : ""}</span>
-                    </div>
-                    <div className="opacity-0 group-hover:opacity-100 transition-opacity flex">
-                       <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-400" onClick={() => setDmReplyingTo(msg)}><Reply className="w-3 h-3"/></Button>
-                       {isMe && <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-400" onClick={() => { setDmEditingMessage(msg); setDmInput(msg.message); }}><Pencil className="w-3 h-3"/></Button>}
-                       {(isMe || user.role === 'admin') && <Button variant="ghost" size="icon" className="h-6 w-6 text-gray-400" onClick={() => socketRef.current.emit("deleteMessage", { messageId: msg.id, userEmail: user.email })}><Trash2 className="w-3 h-3"/></Button>}
-                    </div>
-                  </div>
-                );
-              })}
-              {dmTypingUsers.size > 0 && (
-                <div className="text-[11px] text-gray-600 italic px-4 py-1">
-                  {Array.from(dmTypingUsers).join(", ")} is typing
-                  <span className="inline-flex gap-0.5 ml-1">
-                    <span className="w-1 h-1 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></span>
-                    <span className="w-1 h-1 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '100ms' }}></span>
-                    <span className="w-1 h-1 bg-gray-500 rounded-full animate-bounce" style={{ animationDelay: '200ms' }}></span>
-                  </span>
-                </div>
-              )}
-              {dmShowScrollBottom && (
-                <Button 
-                  size="icon" 
-                  className="fixed bottom-20 right-8 rounded-full shadow-lg bg-[#0084ff] hover:bg-blue-600 animate-in slide-in-from-bottom-4 duration-300"
-                  onClick={() => dmBottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
-                >
-                  <ChevronDown className="w-5 h-5 text-white" />
-                </Button>
-              )}
-              <div ref={dmBottomRef} />
-            </div>
-
-            {/* DM Input */}
-            <footer className="p-3 bg-white border-t relative">
-              {dmReplyingTo && (
-                <div className="p-2 mb-2 bg-blue-50 border-l-4 border-blue-500 rounded flex justify-between items-center text-xs animate-in slide-in-from-bottom-2">
-                  <div className="truncate flex-1">
-                    <span className="font-bold block">Replying to {dmReplyingTo.sender_name}</span>
-                    {dmReplyingTo.message}
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => setDmReplyingTo(null)}><X className="w-3 h-3"/></Button>
-                </div>
-              )}
-
-              {dmEditingMessage && (
-                <div className="p-2 mb-2 bg-green-50 border-l-4 border-green-500 rounded flex justify-between items-center text-xs animate-in slide-in-from-bottom-2">
-                  <div className="truncate flex-1">
-                    <span className="font-bold block">Editing Message</span>
-                    {dmEditingMessage.message}
-                  </div>
-                  <Button variant="ghost" size="icon" className="h-5 w-5" onClick={() => { setDmEditingMessage(null); setDmInput(""); }}><X className="w-3 h-3"/></Button>
-                </div>
-              )}
-
-               {dmShowEmoji && (
-                <div className="absolute bottom-16 left-2 z-10 shadow-xl rounded-xl">
-                  <EmojiPicker onEmojiClick={(emojiData) => { setDmInput(prev => prev + emojiData.emoji); setDmShowEmoji(false); }} width={300} height={380} />
-                </div>
-              )}
-              <div className="flex gap-2 items-end">
-                <div className="flex gap-1 pb-1">
-                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-[#1a2744]" onClick={() => dmFileInputRef.current?.click()}>
-                    <Paperclip className="w-5 h-5" />
-                  </Button>
-                  <input type="file" ref={dmFileInputRef} className="hidden" onChange={handleDmFileSelect} accept="image/*,video/*,audio/mp3,audio/mpeg,audio/wav,audio/m4a,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
-                  <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-[#1a2744]" onClick={() => setDmShowEmoji(!dmShowEmoji)}>
-                    <Smile className="w-5 h-5" />
-                  </Button>
-                </div>
-                <textarea
-  value={dmInput}
-  onChange={handleDmInputChange}
-  placeholder={`Message ${activeDm.full_name}...`}
-  rows={1}
-  className="w-full bg-gray-100 border-none rounded-2xl px-4 py-2.5 resize-none focus:ring-2 focus:ring-[#0084ff] focus:outline-none scrollbar-hide min-h-[40px] max-h-[120px]"
-  onKeyDown={(e) => { 
-    if (e.key === 'Enter' && !e.shiftKey) { 
-      e.preventDefault(); 
-      sendDmMessage(); 
-    } 
-  }}
-  onInput={(e) => {
-    const target = e.target;
-    target.style.height = 'inherit';
-    target.style.height = `${target.scrollHeight}px`;
-  }}
-  disabled={dmSending}
-/>
-                <Button onClick={sendDmMessage} className="rounded-full h-9 w-9 p-0 bg-[#0084ff] hover:bg-blue-600 text-white" disabled={!dmInput.trim() || dmSending}>
-                  <Send className="w-4 h-4" />
-                </Button>
-              </div>
-            </footer>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
-      <header className="p-4 border-b bg-white flex justify-between items-center">
-        <div>
-          <h1 className="text-xl font-bold text-[#1a2744]">{activeChannel.name}</h1>
-          <div className="flex items-center gap-2 mt-0.5">
-            <span className="flex h-2 w-2 rounded-full bg-green-500"></span>
-            <span className="text-xs text-gray-500 font-medium">{onlineUsers.length} Online</span>
-          </div>
+      <header className="p-4 border-b bg-white flex justify-between items-center shadow-sm z-10">
+        <div className="flex items-center gap-3">
+          {activeChannel.type === 'dm' && activeChannel.targetUser ? (
+            <>
+              <div className={cn("w-10 h-10 rounded-full flex items-center justify-center text-white text-xs font-bold overflow-hidden shrink-0 relative", !activeChannel.targetUser.profile_photo_url && getColor(activeChannel.targetUser.email))}>
+                {activeChannel.targetUser.profile_photo_url ? (
+                  <img src={activeChannel.targetUser.profile_photo_url} alt={activeChannel.targetUser.full_name} className="w-full h-full object-cover" />
+                ) : (
+                  getInitials(activeChannel.targetUser.full_name)
+                )}
+                {isUserOnline(activeChannel.targetUser.email) && (
+                  <span className="absolute bottom-0 right-0 block h-2.5 w-2.5 rounded-full bg-green-500 border-2 border-white"></span>
+                )}
+              </div>
+              <div className="min-w-0">
+                <h1 className="text-lg font-bold text-[#1a2744] leading-tight truncate">{activeChannel.targetUser.full_name}</h1>
+                <p className="text-[11px] font-medium text-gray-500 flex items-center gap-1">
+                  {isUserOnline(activeChannel.targetUser.email) ? (
+                    <><span className="w-1.5 h-1.5 bg-green-500 rounded-full"></span> Online</>
+                  ) : 'Offline'}
+                </p>
+              </div>
+            </>
+          ) : (
+            <div>
+              <h1 className="text-xl font-bold text-[#1a2744]">{activeChannel.name}</h1>
+              <div className="flex items-center gap-2 mt-0.5">
+                <span className="flex h-2 w-2 rounded-full bg-green-500"></span>
+                <span className="text-xs text-gray-500 font-medium">{onlineUsers.length} Online</span>
+              </div>
+            </div>
+          )}
         </div>
         <Button variant="outline" size="sm" className="md:hidden gap-2" onClick={() => setShowMobileUsers(true)}>
           <Users className="w-4 h-4" /> Members
@@ -1482,14 +1306,16 @@ export default function Chat() {
                 );
               }
               const msg = item;
+              if (hiddenMessages.has(msg.id)) return null; // Skip messages hidden for the current user
+              
               const isMe = msg.sender_email === user?.email;
-              const canDelete = isMe || user?.role === 'admin';
+              const canDelete = true; // User requested to allow deleting any message
               const swipeOffset = touchState.id === msg.id ? Math.min(touchState.currentX - touchState.startX, 100) : 0;
 
               return (
-                <div 
-                  id={`message-${msg.id}`} 
-                  key={msg.id || idx} 
+                <div
+                  id={`message-${msg.id}`}
+                  key={msg.id || idx}
                   className={cn("flex items-end gap-2 group relative transition-transform duration-100", isMe ? "flex-row-reverse justify-start" : "flex-row justify-start")}
                   style={{ transform: `translateX(${swipeOffset}px)` }}
                   onTouchStart={(e) => handleTouchStart(e, msg)}
@@ -1509,15 +1335,15 @@ export default function Chat() {
                     )}
                   </div>
                   <div className={cn("flex flex-col max-w-xs lg:max-w-md", isMe ? "items-end" : "items-start")}>
-                    <span className="text-[11px] font-semibold text-gray-600 mb-1 px-2">{msg.sender_name}</span>
+                    {activeChannel.type !== 'dm' && <span className="text-[11px] font-semibold text-gray-600 mb-1 px-2">{msg.sender_name}</span>}
                     <div className={cn("relative rounded-2xl text-sm shadow-md leading-relaxed", isMe ? "bg-[#0084ff] text-white rounded-br-none" : "bg-white text-gray-800 rounded-bl-none border border-gray-200")}>
                       {msg.replyTo && (
                         <div className="pt-1 px-1">
-                          <ReplyPreview 
-                            senderName={msg.replyTo.sender_name} 
-                            message={msg.replyTo.message || msg.replyTo.media_filename} 
-                            isMe={isMe} 
-                            onClick={() => handleScrollToMessage(msg.replyTo.id)} 
+                          <ReplyPreview
+                            senderName={msg.replyTo.sender_name}
+                            message={msg.replyTo.message || msg.replyTo.media_filename}
+                            isMe={isMe}
+                            onClick={() => handleScrollToMessage(msg.replyTo.id)}
                           />
                         </div>
                       )}
@@ -1557,8 +1383,8 @@ export default function Chat() {
               </div>
             )}
             {showScrollBottom && (
-              <Button 
-                size="icon" 
+              <Button
+                size="icon"
                 className="fixed bottom-24 right-8 md:right-80 rounded-full shadow-lg bg-[#0084ff] hover:bg-blue-600 animate-in slide-in-from-bottom-4 duration-300"
                 onClick={() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' })}
               >
@@ -1597,12 +1423,41 @@ export default function Chat() {
                 <EmojiPicker onEmojiClick={handleEmojiClick} width={300} height={400} />
               </div>
             )}
+
+            {/* Attachment Type Selector Popover */}
+            {showAttachmentMenu && (
+              <div className="absolute bottom-16 left-4 z-20 bg-white shadow-2xl rounded-2xl border p-2 flex flex-col gap-1 min-w-[160px] animate-in slide-in-from-bottom-2 fade-in duration-200">
+                <Button variant="ghost" className="justify-start gap-3 rounded-xl hover:bg-slate-100" onClick={() => handleAttachmentOption('image')}>
+                  <div className="bg-blue-100 p-1.5 rounded-lg"><ImageIcon className="w-4 h-4 text-blue-600" /></div>
+                  <span className="font-medium text-slate-700">Image</span>
+                </Button>
+                <Button variant="ghost" className="justify-start gap-3 rounded-xl hover:bg-slate-100" onClick={() => handleAttachmentOption('video')}>
+                  <div className="bg-purple-100 p-1.5 rounded-lg"><FileVideo className="w-4 h-4 text-purple-600" /></div>
+                  <span className="font-medium text-slate-700">Video</span>
+                </Button>
+                <Button variant="ghost" className="justify-start gap-3 rounded-xl hover:bg-slate-100" onClick={() => handleAttachmentOption('audio')}>
+                  <div className="bg-amber-100 p-1.5 rounded-lg"><Music className="w-4 h-4 text-amber-600" /></div>
+                  <span className="font-medium text-slate-700">Audio</span>
+                </Button>
+                <Button variant="ghost" className="justify-start gap-3 rounded-xl hover:bg-slate-100" onClick={() => handleAttachmentOption('document')}>
+                  <div className="bg-rose-100 p-1.5 rounded-lg"><FileText className="w-4 h-4 text-rose-600" /></div>
+                  <span className="font-medium text-slate-700">Document</span>
+                </Button>
+              </div>
+            )}
+
             <form onSubmit={sendMessage} className="flex gap-2 items-end">
               <div className="flex gap-1 pb-1">
-                <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-[#1a2744]" onClick={() => fileInputRef.current?.click()}>
+                <Button type="button" variant="ghost" size="icon" className={cn("h-9 w-9 text-gray-500 hover:text-[#1a2744]", showAttachmentMenu && "bg-slate-100 text-[#1a2744]")} onClick={() => setShowAttachmentMenu(p => !p)}>
                   <Paperclip className="w-5 h-5" />
                 </Button>
-                <input type="file" ref={fileInputRef} className="hidden" onChange={handleFileSelect} accept="image/*,video/*,audio/mp3,audio/mpeg,audio/wav,audio/m4a,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx" />
+                <input
+                  type="file"
+                  ref={fileInputRef}
+                  className="hidden"
+                  onChange={handleFileSelect}
+                  accept={attachmentConfig ? attachmentConfig.accept : "*/*"}
+                />
                 <Button type="button" variant="ghost" size="icon" className="h-9 w-9 text-gray-500 hover:text-[#1a2744]" onClick={() => setShowEmojiPicker(!showEmojiPicker)}>
                   <Smile className="w-5 h-5" />
                 </Button>
@@ -1610,7 +1465,7 @@ export default function Chat() {
               <Input
                 value={input}
                 onChange={handleInputChange}
-                placeholder={editingMessage ? "Edit your message..." : `Message ${activeChannel.name}...`}
+                placeholder={editingMessage ? "Edit your message..." : (activeChannel.type === 'dm' ? `Message ${activeChannel.name}...` : `Message in ${activeChannel.name}...`)}
                 className="bg-gray-100 border-none rounded-full ring-offset-0 focus-visible:ring-2 focus-visible:ring-[#0084ff] focus-visible:ring-offset-0"
                 disabled={!user || sending}
               />
@@ -1630,11 +1485,11 @@ export default function Chat() {
             <div className="p-4 bg-white space-y-1">
               <div className="w-12 h-1.5 bg-gray-200 rounded-full mx-auto mb-4 md:hidden" />
               <p className="text-[10px] uppercase font-bold text-gray-400 px-4 mb-2">Message Actions</p>
-              
+
               <Button variant="ghost" className="w-full justify-start gap-3 h-12 rounded-xl text-slate-700" onClick={() => { setReplyingTo(longPressMessage); setLongPressMessage(null); }}>
                 <Reply className="w-4 h-4 text-blue-500" /> Reply
               </Button>
-              
+
               <Button variant="ghost" className="w-full justify-start gap-3 h-12 rounded-xl text-slate-700" onClick={() => copyToClipboard(longPressMessage.message)}>
                 <Copy className="w-4 h-4 text-green-500" /> Copy Text
               </Button>
@@ -1650,7 +1505,7 @@ export default function Chat() {
                   <Trash2 className="w-4 h-4" /> Delete Message
                 </Button>
               )}
-              
+
               <div className="pt-2">
                 <Button variant="secondary" className="w-full rounded-xl h-12" onClick={() => setLongPressMessage(null)}>
                   Cancel
@@ -1713,6 +1568,66 @@ export default function Chat() {
           </div>
         )}
       </div>
+
+      {/* Stylish Delete Confirmation Modal */}
+      <AnimatePresence>
+        {showDeleteConfirm && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowDeleteConfirm(false)}
+              className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ opacity: 0, scale: 0.9, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.9, y: 20 }}
+              className="relative w-full max-w-sm bg-white rounded-3xl shadow-2xl overflow-hidden border border-gray-100"
+            >
+              <div className="p-8 text-center">
+                <div className="w-20 h-20 bg-red-50 rounded-full flex items-center justify-center mx-auto mb-6">
+                  <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center animate-pulse">
+                    <Trash2 className="w-8 h-8 text-red-600" />
+                  </div>
+                </div>
+                <h3 className="text-2xl font-bold text-[#1a2744] mb-1">Delete Message?</h3>
+                <p className="text-gray-500 mb-8 text-sm leading-relaxed px-4">
+                  Choose how you want to remove this message.
+                </p>
+                <div className="flex flex-col gap-3">
+                  {(user?.role === 'admin' || user?.email === messageToDelete?.sender_email) && (
+                    <Button
+                      onClick={() => confirmDelete('everyone')}
+                      className="w-full bg-red-600 hover:bg-red-700 text-white rounded-2xl h-12 text-sm font-bold shadow-lg shadow-red-200 transition-all active:scale-[0.98] group flex justify-between px-6"
+                    >
+                      <span>Delete for Everyone</span>
+                      <Users className="w-4 h-4 opacity-70 group-hover:opacity-100" />
+                    </Button>
+                  )}
+                  <Button
+                    onClick={() => confirmDelete('me')}
+                    variant="outline"
+                    className="w-full border-gray-200 hover:bg-gray-50 text-slate-700 rounded-2xl h-12 text-sm font-bold transition-all active:scale-[0.98] flex justify-between px-6"
+                  >
+                    <span>Delete for Me</span>
+                    <Lock className="w-4 h-4 text-gray-400" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    onClick={() => setShowDeleteConfirm(false)}
+                    className="w-full text-gray-500 hover:bg-gray-50 rounded-2xl h-10 text-xs font-semibold transition-all mt-2"
+                  >
+                    Cancel
+                  </Button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
     </div>
   );
 }
@@ -1761,9 +1676,9 @@ function MediaPreviewModal({ selectedFile, previewUrl, caption, setCaption, onCa
 
 // ── Sidebar ───────────────────────────────────────────────────────────────────
 function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSwitch, onLeaveGroup, unreadCounts, getInitials, getColor, onViewPhoto, isUserOnline, onOpenAiChat, onOpenDm, getDmUnread, memberSearch, setMemberSearch }) {
-  
+
   const filteredMembers = useMemo(() => {
-    return allMembers.filter(m => 
+    return allMembers.filter(m =>
       m.full_name?.toLowerCase().includes(memberSearch.toLowerCase()) ||
       m.email?.toLowerCase().includes(memberSearch.toLowerCase())
     );
@@ -1848,11 +1763,11 @@ function SidebarContent({ user, allMembers, myGroups, activeChannel, onChannelSw
       {/* Members — with DM button */}
       <div className="space-y-4">
         <h4 className="text-[11px] font-bold text-gray-400 uppercase tracking-widest">Members — {allMembers.length}</h4>
-        
+
         {/* Member Search Bar */}
         <div className="relative group">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400 group-focus-within:text-[#1a2744] transition-colors" />
-          <input 
+          <input
             type="text"
             placeholder="Search members..."
             value={memberSearch}

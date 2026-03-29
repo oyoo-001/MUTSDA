@@ -27,6 +27,15 @@ export default defineConfig({
         target: 'http://localhost:5000',
         changeOrigin: true,
       },
+      '/socket.io': {
+        target: 'http://localhost:5000',
+        ws: true,
+        changeOrigin: true,
+      },
+    },
+    headers: {
+      // Allow the service worker to control the entire origin
+      'Service-Worker-Allowed': '/',
     },
   },
 });
