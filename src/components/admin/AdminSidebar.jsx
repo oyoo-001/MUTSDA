@@ -41,7 +41,7 @@ export default function AdminSidebar({ activeTab, setActiveTab, collapsed, setCo
         </Button>
       </div>
 
-      <nav className="flex-1 p-2 space-y-1">
+      <nav className="flex-1 p-2 space-y-1 overflow-y-auto custom-scrollbar">
         {navItems.map(item => (
           <button
             key={item.id}
