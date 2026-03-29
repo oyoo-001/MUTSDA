@@ -91,6 +91,7 @@ const sequelize = new Sequelize(
     port: process.env.DB_PORT,
     dialect: 'mysql',
     logging: false,
+    timezone: '+00:00', // Store everything in UTC to support dynamic conversion for global users
     pool: {
       max: 5,
       min: 0,

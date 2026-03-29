@@ -79,11 +79,25 @@ export default function Home() {
     signalingSocket.on('live_streams_update', (activeStreams) => {
       setIsLive(activeStreams.length > 0);
     });
+    
+    // Refresh specific home sections when data changes remotely
+    signalingSocket.on('events_updated', () => {
+      queryClient.invalidateQueries({ queryKey: ["home-events"] });
+    });
+    
+    signalingSocket.on('sermons_updated', () => {
+      queryClient.invalidateQueries({ queryKey: ["home-sermons"] });
+    });
+    
+    signalingSocket.on('announcements_updated', () => {
+      queryClient.invalidateQueries({ queryKey: ["home-announcements"] });
+    });
 
     return () => {
       signalingSocket.disconnect();
     };
-  }, []);
+  }, [queryClient]);
+
 const handleCopyLink = (id) => {
     const url = `${window.location.origin}${window.location.pathname}?announcement=${id}`;
     navigator.clipboard.writeText(url);

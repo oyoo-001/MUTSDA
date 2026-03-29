@@ -122,8 +122,17 @@ export default function Sermons() {
         queryClient.invalidateQueries({ queryKey: ["sermon-comments", Number(data.id)] });
       }
     });
+    
+    // Listen for new sermons or updates to existing ones
+    socket.on('sermons_updated', () => {
+      console.log('[Socket] Sermon library updated. Refreshing...');
+      queryClient.invalidateQueries({ queryKey: ["sermons"] });
+    });
 
-    return () => socket.disconnect();
+    return () => {
+      socket.disconnect();
+      return undefined;
+    };
   }, [queryClient]);
 
   const { data: sermons, isLoading, isError, refetch } = useQuery({

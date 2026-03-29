@@ -16,12 +16,30 @@ import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Plus, Edit, Trash2, Video, Wand2 } from "lucide-react";
+import { Plus, Edit, Trash2, Video, Wand2, Clock } from "lucide-react";
 import { toast } from "sonner";
 import { io } from "socket.io-client";
 
 
 const eventCategories = ["worship", "youth", "outreach", "fellowship", "seminar", "camp_meeting", "special"];
+
+/**
+ * Converts a Date object or UTC string to a format accepted by <input type="datetime-local">
+ * which is YYYY-MM-DDTHH:mm in the user's local time.
+ */
+const toLocalDatetimeLocal = (dateInput) => {
+  if (!dateInput) return "";
+  const date = new Date(dateInput);
+  if (isNaN(date.getTime())) return "";
+  
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  const hours = String(date.getHours()).padStart(2, '0');
+  const minutes = String(date.getMinutes()).padStart(2, '0');
+  
+  return `${year}-${month}-${day}T${hours}:${minutes}`;
+};
 
 export default function AdminEvents({ events }) {
   const queryClient = useQueryClient();
@@ -104,8 +122,12 @@ export default function AdminEvents({ events }) {
   const openEdit = (ev) => {
     setEditing(ev);
     setForm({
-      title: ev.title, description: ev.description || "", event_date: ev.event_date?.slice(0, 16) || "",
-      end_date: ev.end_date?.slice(0, 16) || "", location: ev.location || "", category: ev.category || "worship",
+      title: ev.title, 
+      description: ev.description || "", 
+      event_date: toLocalDatetimeLocal(ev.event_date),
+      end_date: toLocalDatetimeLocal(ev.end_date), 
+      location: ev.location || "", 
+      category: ev.category || "worship",
       rsvp_enabled: ev.rsvp_enabled !== false, published: ev.published !== false, video_link: ev.video_link || "",
     });
     setDialogOpen(true);
@@ -113,11 +135,18 @@ export default function AdminEvents({ events }) {
 
   const handleSave = async () => {
     setSaving(true);
+    // Convert the local naive strings from the input into proper UTC ISO strings
+    const payload = {
+      ...form,
+      event_date: form.event_date ? new Date(form.event_date).toISOString() : null,
+      end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
+    };
+
     if (editing) {
-      await apiClient.entities.Event.update(editing.id, form);
+      await apiClient.entities.Event.update(editing.id, payload);
       toast.success("Event updated!");
     } else {
-      await apiClient.entities.Event.create(form);
+      await apiClient.entities.Event.create(payload);
       toast.success("Event created!");
     }
     setSaving(false);
@@ -197,6 +226,10 @@ export default function AdminEvents({ events }) {
           <DialogHeader><DialogTitle>{editing ? "Edit Event" : "New Event"}</DialogTitle></DialogHeader>
           <div className="space-y-4 py-2">
             <div><Label>Title *</Label><Input value={form.title} onChange={e => setForm({ ...form, title: e.target.value })} required /></div>
+            <div className="flex items-center gap-2 px-3 py-1.5 bg-slate-50 border rounded-lg text-[10px] text-slate-500 font-medium">
+              <Clock className="w-3 h-3 text-[#c8a951]" />
+              Adjusting for: <span className="text-[#1a2744] font-bold">{Intl.DateTimeFormat().resolvedOptions().timeZone}</span>
+            </div>
             <div><Label>Description</Label><Textarea value={form.description} onChange={e => setForm({ ...form, description: e.target.value })} /></div>
             <div className="grid grid-cols-2 gap-4">
               <div><Label>Start Date & Time</Label><Input type="datetime-local" value={form.event_date} onChange={e => setForm({ ...form, event_date: e.target.value })} /></div>

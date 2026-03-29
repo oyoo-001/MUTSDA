@@ -13,18 +13,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Input } from "@/components/ui/input";
 import { Calendar, MapPin, Clock, Users, CheckCircle2, AlertTriangle, Play, Video, Info, Share2, X } from "lucide-react";
+import { io } from "socket.io-client";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
 
 /**
- * Parse the event date as Nairobi Time (UTC+3).
- * This ensures users globally see the event at the correct physical moment.
- * For users in Nairobi, this results in the exact time provided by the server.
+ * Standardized date parsing. 
+ * Relies on the server sending absolute timestamps (stored in UTC).
  */
-const parseAsEAT = (dateStr) => {
+const parseEventDate = (dateStr) => {
   if (!dateStr) return null;
-  const hasTimezone = /Z|[+-]\d{2}:?\d{2}$/.test(dateStr);
-  return new Date(hasTimezone ? dateStr : `${dateStr}+03:00`);
+  return new Date(dateStr);
 };
 
 // ── Countdown component ────────────────────────────────────────────────────
@@ -37,7 +36,7 @@ function Countdown({ date }) {
     return () => clearInterval(timer);
   }, []);
 
-  const target = parseAsEAT(date);
+  const target = parseEventDate(date);
 
   // Hide the timer if the date is invalid or already in the past/ongoing
   if (!target || isNaN(target.getTime()) || target <= now) return null;
@@ -139,6 +138,18 @@ export default function Events() {
     loadUser();
   }, []);
 
+  // Listen for real-time event updates from the admin panel
+  useEffect(() => {
+    const socket = io(SOCKET_URL);
+    socket.on('events_updated', () => {
+      console.log('[Socket] Events updated remotely. Invalidating cache...');
+      queryClient.invalidateQueries({ queryKey: ["events"] });
+    });
+    return () => {
+      socket.disconnect();
+    };
+  }, [queryClient]);
+
   // Detect user location via IP for UI context
   useEffect(() => {
     fetch('https://ipapi.co/json/')
@@ -203,10 +214,10 @@ export default function Events() {
     const now = new Date();
 
     const getStatus = (event) => {
-      const start = parseAsEAT(event.event_date);
+      const start = parseEventDate(event.event_date);
       if (!start) return "past";
       const end = event.end_date 
-        ? parseAsEAT(event.end_date) 
+        ? parseEventDate(event.end_date) 
         : new Date(start.getTime() + 3 * 60 * 60 * 1000); // Default 3h duration
 
       if (now >= start && now <= end) return "ongoing";
@@ -223,8 +234,8 @@ export default function Events() {
         return order[statusA] - order[statusB];
       }
 
-      const dateA = parseAsEAT(a.event_date);
-      const dateB = parseAsEAT(b.event_date);
+      const dateA = parseEventDate(a.event_date);
+      const dateB = parseEventDate(b.event_date);
       if (statusA === "past") return dateB - dateA; // Newest past events first
       return dateA - dateB; // Soonest upcoming events first
     });
@@ -551,10 +562,10 @@ export default function Events() {
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="flex flex-col gap-2 text-sm text-gray-500">
-              {viewingDetails?.event_date && !isNaN(new Date(viewingDetails.event_date).getTime()) && (
+              {viewingDetails?.event_date && !isNaN(parseEventDate(viewingDetails.event_date).getTime()) && (
                 <div className="flex items-center gap-2">
                   <Clock className="w-4 h-4 text-[#c8a951]" />
-                  {format(new Date(viewingDetails.event_date), "EEEE, MMMM d, yyyy • h:mm a")}
+                  {format(parseEventDate(viewingDetails.event_date), "EEEE, MMMM d, yyyy • h:mm a")}
                 </div>
               )}
               {viewingDetails?.location && (
@@ -784,9 +795,9 @@ export default function Events() {
                         )}
                         {(() => {
                           const now = new Date();
-                          const start = parseAsEAT(event.event_date);
+                          const start = parseEventDate(event.event_date);
                           if (!start) return null;
-                          const end = event.end_date ? parseAsEAT(event.end_date) : new Date(start.getTime() + 3 * 60 * 60 * 1000);
+                          const end = event.end_date ? parseEventDate(event.end_date) : new Date(start.getTime() + 3 * 60 * 60 * 1000);
                           
                           if (now >= start && now <= end) {
                             return <Badge className="bg-red-500 text-white border-0 text-xs animate-pulse">Ongoing</Badge>;
@@ -799,10 +810,10 @@ export default function Events() {
                       </div>
                       <h3 className="font-bold text-[#1a2744] text-xl mb-3">{event.title}</h3>
                       <div className="space-y-2 text-sm text-gray-500 mb-4">
-                        {event.event_date && !isNaN(new Date(event.event_date).getTime()) && (
+                        {event.event_date && !isNaN(parseEventDate(event.event_date).getTime()) && (
                           <div className="flex items-center gap-2">
                             <Clock className="w-4 h-4 text-[#c8a951]" />
-                            {format(new Date(event.event_date), "EEEE, MMMM d, yyyy • h:mm a")}
+                            {format(parseEventDate(event.event_date), "EEEE, MMMM d, yyyy • h:mm a")}
                           </div>
                         )}
                         {event.location && (
@@ -816,7 +827,7 @@ export default function Events() {
                         <p className="text-sm text-gray-500 mb-4 line-clamp-2">{event.description}</p>
                       )}
                       <div className="flex flex-wrap items-center gap-4">
-                        {event.event_date && parseAsEAT(event.event_date) > new Date() && (
+                        {event.event_date && parseEventDate(event.event_date) > new Date() && (
                           <Countdown date={event.event_date} />
                         )}
                         {event.video_link && (
@@ -842,7 +853,7 @@ export default function Events() {
                             )}
                           </div>
                         )}
-                        {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && parseAsEAT(event.event_date) > new Date() && (
+                        {event.rsvp_enabled && user && !rsvpEventIds.has(event.id) && parseEventDate(event.event_date) > new Date() && (
                           <Button
                             size="sm"
                             onClick={() => rsvpMutation.mutate(event.id)}
