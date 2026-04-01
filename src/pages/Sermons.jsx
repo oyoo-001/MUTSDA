@@ -192,7 +192,10 @@ export default function Sermons() {
 
   const getYouTubeId = (url) => {
     if (!url) return null;
-    const match = url.match(/(?:youtu\.be\/|youtube\.com\/(?:embed\/|v\/|watch\?v=))([^&?\s]+)/);
+    const trimmed = url.trim();
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+    const match = trimmed.match(regex);
     return match ? match[1] : null;
   };
 
@@ -255,12 +258,24 @@ export default function Sermons() {
             {selectedVideo && (
               <>
                 {getYouTubeId(selectedVideo.video_link) ? (
-                  <iframe
-                    src={`https://www.youtube.com/embed/${getYouTubeId(selectedVideo.video_link)}?autoplay=1`}
-                    className="w-full h-full"
-                    allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                    allowFullScreen
-                  />
+                  <div className="w-full h-full relative group">
+                    <iframe
+                      src={`https://www.youtube.com/embed/${getYouTubeId(selectedVideo.video_link)}?autoplay=1`}
+                      className="w-full h-full"
+                      allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                      allowFullScreen
+                    />
+                    <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
+                      <a 
+                        href={`https://www.youtube.com/watch?v=${getYouTubeId(selectedVideo.video_link)}`} 
+                        target="_blank" 
+                        rel="noreferrer"
+                        className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg"
+                      >
+                        <Play className="w-3 h-3 fill-current" /> Watch on YouTube
+                      </a>
+                    </div>
+                  </div>
                 ) : (
                   <video 
                     controls 
@@ -406,7 +421,7 @@ export default function Sermons() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filtered.map((sermon, i) => {
                 const ytId = getYouTubeId(sermon.video_link);
-                const thumbnailUrl = sermon.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/mqdefault.jpg` : null);
+                const thumbnailUrl = sermon.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
                 const isAudioOnly = sermon.audio_url && !sermon.video_link && !thumbnailUrl;
                 
                 return (

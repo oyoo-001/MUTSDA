@@ -41,6 +41,16 @@ const toLocalDatetimeLocal = (dateInput) => {
   return `${year}-${month}-${day}T${hours}:${minutes}`;
 };
 
+const getYouTubeId = (input) => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = trimmed.match(regex);
+  const id = match ? match[1] : null;
+  return (id && /^[a-zA-Z0-9_-]{11}$/.test(id)) ? id : null;
+};
+
 export default function AdminEvents({ events }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -141,6 +151,17 @@ export default function AdminEvents({ events }) {
       event_date: form.event_date ? new Date(form.event_date).toISOString() : null,
       end_date: form.end_date ? new Date(form.end_date).toISOString() : null,
     };
+
+    // Process YouTube Link
+    if (payload.video_link && (payload.video_link.includes('youtube') || payload.video_link.includes('youtu.be') || payload.video_link.length === 11)) {
+      const extractedId = getYouTubeId(payload.video_link);
+      if (!extractedId) {
+        toast.error("Enter a valid YouTube link or video ID");
+        setSaving(false);
+        return;
+      }
+      payload.video_link = extractedId;
+    }
 
     if (editing) {
       await apiClient.entities.Event.update(editing.id, payload);
@@ -254,7 +275,7 @@ export default function AdminEvents({ events }) {
     <Input 
       value={form.video_link} 
       onChange={e => setForm({ ...form, video_link: e.target.value })} 
-      placeholder="YouTube URL or Jitsi link" 
+      placeholder="YouTube URL, ID or Jitsi link" 
       className="pr-24"
     />
     
@@ -271,14 +292,14 @@ export default function AdminEvents({ events }) {
           </Badge>
         ) : (
           <Badge className="bg-red-100 text-red-700 hover:bg-red-100 text-[9px] border-red-200">
-            Stream Mode
+            {form.video_link.length === 11 ? "YouTube ID" : "Stream Mode"}
           </Badge>
         )
       ) : null}
     </div>
   </div>
   <p className="text-[10px] text-gray-400 italic">
-    * Jitsi links trigger the in-app interactive modal. Others trigger the video player.
+    * Jitsi links trigger interactive modals. YouTube IDs/Links trigger the embed player.
   </p>
 </div>
             <div>

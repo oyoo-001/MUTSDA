@@ -17,6 +17,18 @@ import { toast } from "sonner";
 
 const categories = ["sabbath", "youth", "revival", "special_program", "prayer_meeting", "bible_study"];
 
+const getYouTubeId = (input) => {
+  if (!input) return null;
+  const trimmed = input.trim();
+  // Check if already an ID
+  if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+  // Extract from URL patterns
+  const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+  const match = trimmed.match(regex);
+  const id = match ? match[1] : null;
+  return (id && /^[a-zA-Z0-9_-]{11}$/.test(id)) ? id : null;
+};
+
 export default function AdminSermons({ sermons }) {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -42,11 +54,25 @@ export default function AdminSermons({ sermons }) {
 
   const handleSave = async () => {
     setSaving(true);
+    
+    const payload = { ...form };
+    // Process YouTube Link into a clean ID if it looks like YouTube content
+    if (payload.video_link && (payload.video_link.includes('youtube') || payload.video_link.includes('youtu.be') || payload.video_link.includes('shorts') || payload.video_link.length === 11)) {
+      const extractedId = getYouTubeId(payload.video_link);
+      if (!extractedId) {
+        toast.error("Enter a valid YouTube link or video ID");
+        setSaving(false);
+        return;
+      }
+      payload.video_link = extractedId;
+      console.log(`[YouTube] Extracted ID: ${extractedId}`);
+    }
+
     if (editing) {
-      await apiClient.entities.Sermon.update(editing.id, form);
+      await apiClient.entities.Sermon.update(editing.id, payload);
       toast.success("Sermon updated!");
     } else {
-      await apiClient.entities.Sermon.create(form);
+      await apiClient.entities.Sermon.create(payload);
       toast.success("Sermon created!");
     }
     setSaving(false);
@@ -180,8 +206,14 @@ export default function AdminSermons({ sermons }) {
             <div>
               <Label>Video File (or YouTube Link)</Label>
               <Input type="file" accept="video/*" onChange={handleVideoUpload} className="mb-2" />
-              <Input value={form.video_link} onChange={e => setForm({ ...form, video_link: e.target.value })} placeholder="Or paste a YouTube/Vimeo link here" />
-              {form.video_link && !form.video_link.includes('youtu') && (
+              <Input value={form.video_link} onChange={e => setForm({ ...form, video_link: e.target.value })} placeholder="Paste link or Video ID (e.g. OphavE5rP-M)" />
+              <p className="text-[10px] text-gray-400 mt-1">Paste a YouTube link or just the video ID. Only the ID will be saved.</p>
+              {form.video_link && !form.video_link.includes('/') && form.video_link.length === 11 && (
+                <div className="mt-2 rounded-md overflow-hidden bg-black aspect-video">
+                  <iframe src={`https://www.youtube.com/embed/${form.video_link}`} className="w-full h-full" title="Preview" />
+                </div>
+              )}
+              {form.video_link && form.video_link.includes('/') && !form.video_link.includes('youtu') && (
                 <div className="mt-2 rounded-md overflow-hidden bg-black aspect-video">
                   <video src={form.video_link} controls className="w-full h-full" />
                 </div>
