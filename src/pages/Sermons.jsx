@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Added Dialog
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog"; // Added Dialog
 import {
   AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent,
   AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
@@ -144,11 +144,43 @@ export default function Sermons() {
     initialData: [],
   });
 
+  const getYouTubeId = (url) => {
+    if (!url) return null;
+    const trimmed = url.trim();
+    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
+    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
+    const match = trimmed.match(regex);
+    return match ? match[1] : null;
+  };
+
+  const getGoogleDriveId = (url) => {
+    const match = url?.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    return match ? match[1] : null;
+  };
+
   const currentSermonData = useMemo(() => {
     if (!selectedVideo) return null;
     const list = Array.isArray(sermons) ? sermons : [];
     return list.find(s => s.id === selectedVideo.id) || selectedVideo;
   }, [selectedVideo, sermons]);
+
+  // Explicitly determine video type for the player
+  const currentPlayerYtId = getYouTubeId(currentSermonData?.video_link);
+  const videoLink = currentSermonData?.video_link || "";
+  
+  const isDirectVideo = videoLink && !currentPlayerYtId && (
+    /\.(mp4|webm|ogg|mov|m4v|mkv)$/i.test(videoLink) || 
+    videoLink.includes('res.cloudinary.com')
+  );
+
+  const isExternalEmbed = videoLink && !currentPlayerYtId && !isDirectVideo && videoLink.includes('http');
+
+  const getEmbedUrl = (url) => {
+    if (!url) return null;
+    const gdMatch = url.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/);
+    if (gdMatch) return `https://drive.google.com/file/d/${gdMatch[1]}/preview`;
+    return url;
+  };
 
   // Sync "Liked" status from DB result to UI state
   useEffect(() => {
@@ -189,15 +221,6 @@ export default function Sermons() {
       return catMatch && searchMatch;
     });
   }, [sermons, category, search]);
-
-  const getYouTubeId = (url) => {
-    if (!url) return null;
-    const trimmed = url.trim();
-    if (/^[a-zA-Z0-9_-]{11}$/.test(trimmed)) return trimmed;
-    const regex = /(?:youtube\.com\/(?:[^\/]+\/.+\/|(?:v|e(?:mbed)?|shorts)\/|.*[?&]v=)|youtu\.be\/)([^"&?\/\s]{11})/i;
-    const match = trimmed.match(regex);
-    return match ? match[1] : null;
-  };
 
   const likeMutation = useMutation({
     mutationFn: async (id) => {
@@ -253,21 +276,22 @@ export default function Sermons() {
         )}>
           <DialogHeader className="sr-only">
             <DialogTitle>{currentSermonData?.title}</DialogTitle>
+            <DialogDescription>Sermon video playback modal</DialogDescription>
           </DialogHeader>
           <div className={cn("relative aspect-video w-full bg-black shrink-0 transition-all duration-500", !isTheatreMode && "lg:aspect-auto lg:flex-[1.8]")}>
             {selectedVideo && (
               <>
-                {getYouTubeId(selectedVideo.video_link) ? (
+                {currentPlayerYtId ? (
                   <div className="w-full h-full relative group">
                     <iframe
-                      src={`https://www.youtube.com/embed/${getYouTubeId(selectedVideo.video_link)}?autoplay=1`}
+                      src={`https://www.youtube.com/embed/${currentPlayerYtId}?autoplay=1`}
                       className="w-full h-full"
                       allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
                       allowFullScreen
                     />
                     <div className="absolute bottom-4 right-4 opacity-0 group-hover:opacity-100 transition-opacity">
                       <a 
-                        href={`https://www.youtube.com/watch?v=${getYouTubeId(selectedVideo.video_link)}`} 
+                        href={`https://www.youtube.com/watch?v=${getYouTubeId(currentSermonData?.video_link)}`} 
                         target="_blank" 
                         rel="noreferrer"
                         className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-bold flex items-center gap-2 shadow-lg"
@@ -276,13 +300,26 @@ export default function Sermons() {
                       </a>
                     </div>
                   </div>
-                ) : (
+                ) : isDirectVideo ? (
                   <video 
+                    key={videoLink}
                     controls 
                     autoPlay 
                     className="w-full h-full"
-                    src={selectedVideo.video_link}
+                    src={videoLink}
                   />
+                ) : isExternalEmbed ? (
+                  <iframe
+                    src={getEmbedUrl(videoLink)}
+                    className="w-full h-full border-none"
+                    allow="autoplay; fullscreen"
+                    allowFullScreen
+                  />
+                ) : (
+                  <div className="w-full h-full flex flex-col items-center justify-center text-white/40 bg-slate-900">
+                    <AlertTriangle className="w-10 h-10 mb-2 opacity-20" />
+                    <p className="text-sm font-medium">Video source unavailable</p>
+                  </div>
                 )}
               </>
             )}
@@ -343,6 +380,7 @@ export default function Sermons() {
         <DialogContent className="max-w-lg bg-white rounded-2xl p-6">
           <DialogHeader>
             <DialogTitle className="text-xl font-bold text-[#1a2744]">{viewingDetails?.title}</DialogTitle>
+            <DialogDescription className="sr-only">Detailed information and description for the sermon.</DialogDescription>
           </DialogHeader>
           <div className="space-y-4 mt-2">
             <div className="flex flex-col gap-1 text-sm text-gray-500">
@@ -421,7 +459,12 @@ export default function Sermons() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filtered.map((sermon, i) => {
                 const ytId = getYouTubeId(sermon.video_link);
-                const thumbnailUrl = sermon.thumbnail_url || (ytId ? `https://img.youtube.com/vi/${ytId}/hqdefault.jpg` : null);
+                const gdId = getGoogleDriveId(sermon.video_link);
+                
+                const thumbnailUrl = sermon.thumbnail_url || 
+                  (ytId ? `https://img.youtube.com/vi/${ytId}/maxresdefault.jpg` : 
+                   gdId ? `https://drive.google.com/thumbnail?id=${gdId}&sz=w1280` : null);
+
                 const isAudioOnly = sermon.audio_url && !sermon.video_link && !thumbnailUrl;
                 
                 return (

@@ -165,10 +165,10 @@ const Sermon = sequelize.define('Sermon', {
   speaker: DataTypes.STRING,
   sermon_date: DataTypes.DATE,
   category: { type: DataTypes.ENUM('sabbath', 'youth', 'revival', 'special_program', 'prayer_meeting', 'bible_study'), defaultValue: 'sabbath' },
-  video_link: DataTypes.STRING,
-  audio_url: DataTypes.STRING,
-  notes_pdf_url: DataTypes.STRING,
-  thumbnail_url: DataTypes.STRING,
+  video_link: DataTypes.TEXT,
+  audio_url: DataTypes.TEXT,
+  notes_pdf_url: DataTypes.TEXT,
+  thumbnail_url: DataTypes.TEXT,
   published: { type: DataTypes.BOOLEAN, defaultValue: true },
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
@@ -533,6 +533,11 @@ const createController = (model, namespace) => ({
   },
   update: async (req, res) => {
     try {
+      // Ensure empty strings don't break rendering
+      if (req.body.video_link === "") req.body.video_link = null;
+      if (req.body.audio_url === "") req.body.audio_url = null;
+      if (req.body.notes_pdf_url === "") req.body.notes_pdf_url = null;
+
       const item = await model.findByPk(req.params.id);
       if (!item) return res.status(404).json({ message: 'Item not found' });
       await item.update(req.body);
@@ -948,7 +953,13 @@ const sermonController = {
   // Override create to fire push notification to all subscribers
   create: async (req, res) => {
     try {
-      const item = await Sermon.create(req.body);
+      const payload = { ...req.body };
+      // Sanitization
+      if (payload.video_link === "") payload.video_link = null;
+      if (payload.audio_url === "") payload.audio_url = null;
+      if (payload.notes_pdf_url === "") payload.notes_pdf_url = null;
+
+      const item = await Sermon.create(payload);
       if (req.app.get('io')) req.app.get('io').emit('sermons_updated');
       if (item.published !== false) {
         sendPushToAll({
@@ -1656,10 +1667,11 @@ chatRouter.post('/upload', protect, upload.single('file'), processFileUpload, as
 
   try {
     const preppedData = req.cloudinaryPreppedFile;
-    const result = await cloudinary.uploader.upload(preppedData.localPath, {
+    const result = await cloudinary.uploader.upload_large(preppedData.localPath, {
       resource_type: preppedData.resourceType,
       folder: preppedData.cloudinaryFolder,
       access_mode: preppedData.accessMode,
+      chunk_size: 6000000, // 6MB chunks for reliable large file uploads
       public_id: `${req.user.id}-chat-${Date.now()}-${preppedData.originalName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")}`
     });
 

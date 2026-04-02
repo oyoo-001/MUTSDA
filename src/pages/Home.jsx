@@ -46,9 +46,14 @@ export default function Home() {
     queryFn: async () => {
       const data = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
       const sliced = Array.isArray(data) ? data.slice(0, 3) : [];
+      
+      const getGoogleId = (url) => url?.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1];
+
       return sliced.map(s => ({
         ...s,
-        thumbnail_url: s.thumbnail_url || (s.video_link ? `https://img.youtube.com/vi/${getYouTubeId(s.video_link)}/mqdefault.jpg` : null)
+        thumbnail_url: s.thumbnail_url || 
+          (getYouTubeId(s.video_link) ? `https://img.youtube.com/vi/${getYouTubeId(s.video_link)}/maxresdefault.jpg` : 
+           getGoogleId(s.video_link) ? `https://drive.google.com/thumbnail?id=${getGoogleId(s.video_link)}&sz=w1280` : null)
       }));
     },
     initialData: [],
