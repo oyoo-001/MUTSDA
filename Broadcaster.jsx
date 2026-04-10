@@ -25,6 +25,14 @@ const BIBLE_BOOKS = [
   "Matthew", "Mark", "Luke", "John", "Acts", "Romans", "1 Corinthians", "2 Corinthians", "Galatians", "Ephesians", "Philippians", "Colossians", "1 Thessalonians", "2 Thessalonians", "1 Timothy", "2 Timothy", "Titus", "Philemon", "Hebrews", "James", "1 Peter", "2 Peter", "1 John", "2 John", "3 John", "Jude", "Revelation"
 ];
 
+const buildIceServers = () => {
+  return [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+};
+
 // Global state to persist stream across navigation/unmounts
 const globalBroadcastState = {
   stream: null,
@@ -125,7 +133,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
       socket.on('watcher', (id) => {
         const peerConnection = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          iceServers: buildIceServers()
         });
 
         peerConnections.current[id] = peerConnection;
@@ -310,7 +318,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
 
       socketRef.current.on('watcher', (id) => {
         const peerConnection = new RTCPeerConnection({
-          iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+          iceServers: buildIceServers()
         });
 
         peerConnections.current[id] = peerConnection;

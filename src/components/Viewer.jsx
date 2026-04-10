@@ -5,15 +5,25 @@ import { Maximize2, Minimize2, Volume2, VolumeX, Users, Radio, Loader2, PictureI
 import NewsTicker from './NewsTicker';
 import TextOverlay from './TextOverlay';
 
+const buildIceServers = () => {
+  return [
+    { urls: 'stun:stun.l.google.com:19302' },
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' },
+  ];
+};
+
 const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = "Stream Offline" }) => {
   const videoRef = useRef(null);
   const containerRef = useRef(null);
   const socketRef = useRef(null);
   const peerConnectionRef = useRef(null);
+  const broadcasterSocketIdRef = useRef(null);
   const [isMuted, setIsMuted] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewerCount, setViewerCount] = useState(0);
   const [status, setStatus] = useState('connecting'); // connecting, live, offline
+  const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 
   useEffect(() => {
     if (!isBroadcasting) {
@@ -28,7 +38,7 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
     });
 
     const pc = new RTCPeerConnection({
-      iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+      iceServers: buildIceServers(),
     });
     peerConnectionRef.current = pc;
 
@@ -42,6 +52,11 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
     pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
             setStatus('offline');
+            // Recover on flaky mobile networks by re-requesting broadcaster offer.
+            if (socketRef.current?.connected) {
+              socketRef.current.emit('watcher', streamId);
+              setStatus('connecting');
+            }
         } else if (pc.connectionState === 'connected') {
             setStatus('live');
         }
@@ -49,11 +64,15 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
 
     pc.onicecandidate = (event) => {
       if (event.candidate) {
-        socketRef.current.emit('candidate', streamId, event.candidate);
+        // Send ICE candidates to the actual broadcaster socket id, not stream id.
+        if (broadcasterSocketIdRef.current) {
+          socketRef.current.emit('candidate', broadcasterSocketIdRef.current, event.candidate);
+        }
       }
     };
 
     socketRef.current.on('offer', (id, description) => {
+      broadcasterSocketIdRef.current = id;
       pc.setRemoteDescription(description)
         .then(() => pc.createAnswer())
         .then((sdp) => pc.setLocalDescription(sdp))
@@ -90,6 +109,7 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
       clearInterval(heartbeatInterval);
       if (socketRef.current) socketRef.current.disconnect();
       if (peerConnectionRef.current) peerConnectionRef.current.close();
+      broadcasterSocketIdRef.current = null;
     };
   }, [streamId, isBroadcasting]);
 
@@ -100,28 +120,55 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
       }
   };
 
-  const toggleFullscreen = async () => {
-      if (!document.fullscreenElement) {
-          try {
-              if (containerRef.current && containerRef.current.requestFullscreen) {
-                  await containerRef.current.requestFullscreen();
-                  setIsFullscreen(true);
-                  // Attempt to lock orientation to landscape on mobile
-                  if (screen.orientation && screen.orientation.lock) {
-                      screen.orientation.lock('landscape').catch(e => console.log('Orientation lock failed:', e));
-                  }
-              } else if (videoRef.current && videoRef.current.webkitEnterFullscreen) {
-                  videoRef.current.webkitEnterFullscreen();
-              }
-          } catch (err) {
-              console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
-          }
-      } else {
-          document.exitFullscreen().catch(e => console.error(e));
-          if (screen.orientation && screen.orientation.unlock) {
-              screen.orientation.unlock();
-          }
+  const tryLockLandscape = async () => {
+    if (!isMobile) return;
+    if (screen.orientation?.lock) {
+      try {
+        await screen.orientation.lock('landscape');
+      } catch (e) {
+        // Some mobile browsers (especially iOS Safari) do not allow lock.
       }
+    }
+  };
+
+  const tryUnlockOrientation = () => {
+    if (screen.orientation?.unlock) {
+      try {
+        screen.orientation.unlock();
+      } catch (e) {
+        // Ignore unsupported browser behavior.
+      }
+    }
+  };
+
+  const toggleFullscreen = async () => {
+    const inFullscreen = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+    if (!inFullscreen) {
+      try {
+        if (containerRef.current?.requestFullscreen) {
+          await containerRef.current.requestFullscreen();
+          setIsFullscreen(true);
+          await tryLockLandscape();
+          return;
+        }
+
+        // Safari fallback (some iOS versions support only video fullscreen API)
+        if (videoRef.current?.webkitEnterFullscreen) {
+          videoRef.current.webkitEnterFullscreen();
+          setIsFullscreen(true);
+          await tryLockLandscape();
+        }
+      } catch (err) {
+        console.log(`Error attempting to enable full-screen mode: ${err.message} (${err.name})`);
+      }
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen().catch(e => console.error(e));
+      } else if (document.webkitExitFullscreen) {
+        document.webkitExitFullscreen();
+      }
+      tryUnlockOrientation();
+    }
   };
 
   const togglePiP = async () => {
@@ -137,11 +184,37 @@ const Viewer = ({ streamId = 'default', isBroadcasting = true, offlineMessage = 
   };
 
   useEffect(() => {
-      const handleFullscreenChange = () => {
-          setIsFullscreen(!!document.fullscreenElement);
-      };
-      document.addEventListener('fullscreenchange', handleFullscreenChange);
-      return () => document.removeEventListener('fullscreenchange', handleFullscreenChange);
+    const handleFullscreenChange = async () => {
+      const active = !!document.fullscreenElement || !!document.webkitFullscreenElement;
+      setIsFullscreen(active);
+      if (active) await tryLockLandscape();
+      else tryUnlockOrientation();
+    };
+
+    const handleWebkitBeginFullscreen = async () => {
+      setIsFullscreen(true);
+      await tryLockLandscape();
+    };
+    const handleWebkitEndFullscreen = () => {
+      setIsFullscreen(false);
+      tryUnlockOrientation();
+    };
+
+    document.addEventListener('fullscreenchange', handleFullscreenChange);
+    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
+    if (videoRef.current) {
+      videoRef.current.addEventListener('webkitbeginfullscreen', handleWebkitBeginFullscreen);
+      videoRef.current.addEventListener('webkitendfullscreen', handleWebkitEndFullscreen);
+    }
+
+    return () => {
+      document.removeEventListener('fullscreenchange', handleFullscreenChange);
+      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
+      if (videoRef.current) {
+        videoRef.current.removeEventListener('webkitbeginfullscreen', handleWebkitBeginFullscreen);
+        videoRef.current.removeEventListener('webkitendfullscreen', handleWebkitEndFullscreen);
+      }
+    };
   }, []);
 
   return (

@@ -229,12 +229,27 @@ const totalGiving = donations.reduce((s, d) => s + parseFloat(d.amount || 0), 0)
         </Card>
 
         <Tabs defaultValue="profile" className="space-y-6">
-          <TabsList className="bg-white border">
-            <TabsTrigger value="profile">Profile</TabsTrigger>
-            <TabsTrigger value="giving">Giving History</TabsTrigger>
-            <TabsTrigger value="events">My RSVPs</TabsTrigger>
-            <TabsTrigger value="notifications">Notifications</TabsTrigger>
-            <TabsTrigger value="security">Security</TabsTrigger>
+          <TabsList className="bg-white border grid grid-cols-5 w-full">
+            <TabsTrigger value="profile" className="gap-1.5" title="Profile">
+              <User className="w-4 h-4" />
+              <span className="hidden sm:inline">Profile</span>
+            </TabsTrigger>
+            <TabsTrigger value="giving" className="gap-1.5" title="Giving History">
+              <DollarSign className="w-4 h-4" />
+              <span className="hidden sm:inline">Giving</span>
+            </TabsTrigger>
+            <TabsTrigger value="events" className="gap-1.5" title="My RSVPs">
+              <Calendar className="w-4 h-4" />
+              <span className="hidden sm:inline">RSVPs</span>
+            </TabsTrigger>
+            <TabsTrigger value="notifications" className="gap-1.5" title="Notifications">
+              <Bell className="w-4 h-4" />
+              <span className="hidden sm:inline">Alerts</span>
+            </TabsTrigger>
+            <TabsTrigger value="security" className="gap-1.5" title="Security">
+              <Lock className="w-4 h-4" />
+              <span className="hidden sm:inline">Security</span>
+            </TabsTrigger>
           </TabsList>
 
           <TabsContent value="profile">

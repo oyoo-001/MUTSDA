@@ -312,12 +312,14 @@ export default function Layout({ children, currentPageName }) {
 
               {/* Mobile toggle */}
               <Button
+                type="button"
                 variant="ghost"
                 size="icon"
-                className="lg:hidden"
+                className="lg:hidden h-11 w-11 p-0 rounded-xl border border-[#1a2744]/10 bg-white shadow-sm hover:bg-[#1a2744] hover:text-white active:scale-95 transition-all duration-200 flex items-center justify-center touch-manipulation"
                 onClick={() => setMobileOpen(!mobileOpen)}
+                aria-label={mobileOpen ? "Close navigation menu" : "Open navigation menu"}
               >
-                {mobileOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+                {mobileOpen ? <X className="w-6 h-6 pointer-events-none" /> : <Menu className="w-6 h-6 pointer-events-none" />}
               </Button>
             </div>
           </div>
