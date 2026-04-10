@@ -3,11 +3,13 @@ import { Link } from "react-router-dom";
 import { io } from "socket.io-client";
 import { SOCKET_URL } from "@/api/base44Client";
 import Viewer from "../components/Viewer";
-import { Radio, ArrowLeft } from "lucide-react";
+import { Radio, ArrowLeft, Link2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
 
 export default function Live() {
   const [isLive, setIsLive] = useState(false);
+  const shareUrl = `${window.location.origin}/auth?view=login&returnUrl=${encodeURIComponent("/Live")}`;
 
   // Live Stream Status
   useEffect(() => {
@@ -27,14 +29,46 @@ export default function Live() {
     };
   }, []);
 
+  const handleShareLive = async () => {
+    const shareData = {
+      title: "MUTSDA Live Stream",
+      text: "Join MUTSDA live stream. Login first, then you will be taken directly to live.",
+      url: shareUrl,
+    };
+
+    try {
+      if (navigator.share) {
+        await navigator.share(shareData);
+      } else if (navigator.clipboard) {
+        await navigator.clipboard.writeText(shareUrl);
+        toast.success("Live stream link copied.");
+      } else {
+        toast.info(shareUrl);
+      }
+    } catch (err) {
+      // User-cancelled share should not be treated as an error.
+      if (err?.name !== "AbortError") {
+        toast.error("Could not share live stream link.");
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-slate-900 relative">
-      <div className="absolute top-4 left-4 z-10">
+      <div className="absolute top-4 left-4 z-10 flex items-center gap-2">
         <Link to="/">
           <Button variant="ghost" className="text-white hover:bg-white/10 gap-2">
             <ArrowLeft className="w-4 h-4" /> Back to Home
           </Button>
         </Link>
+        <Button
+          variant="ghost"
+          onClick={handleShareLive}
+          className="text-white hover:bg-white/10 gap-2"
+          title="Share live stream link"
+        >
+          <Link2 className="w-4 h-4" /> Share
+        </Button>
       </div>
 
       <section className="relative py-24 bg-gradient-to-br from-[#1a2744] to-[#2d5f8a]">

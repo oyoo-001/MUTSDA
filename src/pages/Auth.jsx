@@ -24,7 +24,12 @@ export default function AuthPage() {
   const emailResetRef = useRef(null);
   const otpInputRef = useRef(null);
 
-  const from = location.state?.from || '/';
+  const returnUrlParam = new URLSearchParams(location.search).get('returnUrl');
+  const safeReturnUrl = returnUrlParam && returnUrlParam.startsWith('/') ? returnUrlParam : null;
+  const stateFrom = location.state?.from;
+  const from = typeof stateFrom === 'string'
+    ? stateFrom
+    : (stateFrom?.pathname || safeReturnUrl || '/');
   const view = new URLSearchParams(location.search).get('view') || 'login';
   const emailParam = new URLSearchParams(location.search).get('email') || '';
 
