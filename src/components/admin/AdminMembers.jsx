@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from "@/components/ui/dialog";
+import { VisuallyHidden } from "@radix-ui/react-visually-hidden";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 
@@ -53,6 +54,7 @@ export default function AdminMembers({ members }) {
   const [inviting, setInviting] = useState(false);
   const [userToDelete, setUserToDelete] = useState(null);
   const queryClient = useQueryClient();
+  const normalizeRole = (role) => (role === "user" ? "member" : (role || "member"));
 
   const filtered = members.filter(m => {
     const searchLower = search.toLowerCase();
@@ -92,12 +94,23 @@ export default function AdminMembers({ members }) {
 
   const handleRoleUpdate = async (userId, newRole) => {
     try {
-      await apiClient.entities.User.update(userId, { role: newRole });
-      toast.success(`User role updated to ${newRole}`);
+      const normalizedRole = normalizeRole(newRole);
+      const existingMembers = queryClient.getQueryData(["admin-members"]) || [];
+      const currentUser = existingMembers.find((member) => member.id === userId);
+      if (currentUser?.role === normalizedRole) return;
+
+      await apiClient.entities.User.update(userId, { role: normalizedRole });
+      queryClient.setQueryData(["admin-members"], (prev = []) =>
+        prev.map((member) => (member.id === userId ? { ...member, role: normalizedRole } : member))
+      );
+      if (viewingMember?.id === userId) {
+        setViewingMember((prev) => (prev ? { ...prev, role: normalizedRole } : prev));
+      }
+      toast.success(`User role updated to ${normalizedRole}`);
       queryClient.invalidateQueries({ queryKey: ["admin-members"] });
     } catch (error) {
       console.error(error);
-      toast.error("Failed to update role");
+      toast.error(error?.message || "Failed to update role");
     }
   };
 
@@ -248,8 +261,8 @@ export default function AdminMembers({ members }) {
                   <TableCell className="text-sm text-gray-500">{m.email}</TableCell>
                   <TableCell>
                     <div className="flex gap-1.5 items-center">
-                      <Badge className={`${roleColors[m.role] || roleColors.member} border-0 capitalize text-xs`}>
-                        {m.role || "member"}
+                      <Badge className={`${roleColors[normalizeRole(m.role)] || roleColors.member} border-0 capitalize text-xs`}>
+                        {normalizeRole(m.role)}
                       </Badge>
                       {m.is_banned && (
                         <Badge className="bg-red-600 text-white border-0 text-[10px] px-1 h-4">Banned</Badge>
@@ -276,8 +289,8 @@ export default function AdminMembers({ members }) {
                         </DropdownMenuItem>
                         <DropdownMenuSub>
                           <DropdownMenuSubTrigger>Change Role</DropdownMenuSubTrigger>
-                          <DropdownMenuSubContent>
-                            <DropdownMenuRadioGroup value={m.role} onValueChange={(val) => handleRoleUpdate(m.id, val)}>
+                          <DropdownMenuSubContent onClick={(e) => e.stopPropagation()}>
+                            <DropdownMenuRadioGroup value={normalizeRole(m.role)} onValueChange={(val) => handleRoleUpdate(m.id, val)}>
                               <DropdownMenuRadioItem value="member">Member</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="deacon">Deacon</DropdownMenuRadioItem>
                               <DropdownMenuRadioItem value="elder">Elder</DropdownMenuRadioItem>
@@ -311,6 +324,13 @@ export default function AdminMembers({ members }) {
       {/* Member Detail Dialog */}
       <Dialog open={!!viewingMember} onOpenChange={(open) => !open && setViewingMember(null)}>
         <DialogContent className="max-w-2xl overflow-hidden p-0 rounded-2xl border-none shadow-2xl">
+          <DialogHeader>
+            <VisuallyHidden>
+              <DialogTitle>
+                {viewingMember?.full_name ? `${viewingMember.full_name} profile details` : "Member profile details"}
+              </DialogTitle>
+            </VisuallyHidden>
+          </DialogHeader>
           <div className="bg-gradient-to-r from-[#1a2744] to-[#2d5f8a] p-8 text-white relative">
             <div className="flex flex-col sm:flex-row items-center gap-6">
               <div className="w-24 h-24 rounded-2xl bg-white/10 backdrop-blur-md flex items-center justify-center border border-white/20 overflow-hidden shadow-xl shrink-0">
@@ -324,8 +344,8 @@ export default function AdminMembers({ members }) {
                 <h2 className="text-2xl font-bold">{viewingMember?.full_name}</h2>
                 <p className="text-white/70 text-sm mb-2">{viewingMember?.email}</p>
                 <div className="flex flex-wrap justify-center sm:justify-start gap-2">
-                  <Badge className={`${roleColors[viewingMember?.role] || roleColors.member} border-0 capitalize shadow-none`}>
-                    {viewingMember?.role}
+                  <Badge className={`${roleColors[normalizeRole(viewingMember?.role)] || roleColors.member} border-0 capitalize shadow-none`}>
+                    {normalizeRole(viewingMember?.role)}
                   </Badge>
                   {viewingMember?.is_banned && (
                     <Badge className="bg-red-500 text-white border-0 shadow-none">Suspended</Badge>

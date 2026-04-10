@@ -78,6 +78,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   const recordedChunksRef = useRef(globalBroadcastState.recordedChunks);
   const adminSocketRef = useRef(null);
   const verseInputRef = useRef(null);
+  const socketAuth = { auth: { token: localStorage.getItem('token') } };
 
   const getCameras = async () => {
     try {
@@ -174,7 +175,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
   // Check for existing streams on mount and updates
   useEffect(() => {
     // This socket is for admin actions like text overlay and status updates
-    const socket = io(SOCKET_URL);
+    const socket = io(SOCKET_URL, socketAuth);
     adminSocketRef.current = socket;
 
     socket.on('connect', () => {
@@ -299,7 +300,7 @@ const Broadcaster = ({ streamId = 'default' }) => {
     try {
 
       // Connect to signaling server
-      socketRef.current = io(SOCKET_URL);
+      socketRef.current = io(SOCKET_URL, socketAuth);
       socketRef.current.emit('broadcaster', streamId);
 
       socketRef.current.on('viewer_count', (count) => {
@@ -390,6 +391,12 @@ const Broadcaster = ({ streamId = 'default' }) => {
     globalBroadcastState.zoomSettings = null;
     globalBroadcastState.audioEnabled = true;
     globalBroadcastState.videoEnabled = true;
+  };
+
+  const confirmStopStream = () => {
+    stopStream();
+    setShowStopConfirmation(false);
+    toast.info("Live broadcast ended.");
   };
 
   const startRecording = () => {

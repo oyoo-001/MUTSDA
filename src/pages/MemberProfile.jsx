@@ -25,6 +25,12 @@ export default function MemberProfile() {
   const [changingPassword, setChangingPassword] = useState(false);
   const [testingPush, setTestingPush] = useState(false);
   const navigate = useNavigate();
+  const urlBase64ToUint8Array = (base64String) => {
+    const padding = "=".repeat((4 - (base64String.length % 4)) % 4);
+    const base64 = (base64String + padding).replace(/-/g, "+").replace(/_/g, "/");
+    const rawData = window.atob(base64);
+    return Uint8Array.from([...rawData].map((char) => char.charCodeAt(0)));
+  };
 
   useEffect(() => {
     const load = async () => {
@@ -111,6 +117,49 @@ export default function MemberProfile() {
     try {
       await apiClient.auth.updateMe({ push_notifications_enabled: enabled });
       setUser(prev => ({ ...prev, push_notifications_enabled: enabled }));
+
+      if ("serviceWorker" in navigator) {
+        const registration = await navigator.serviceWorker.ready;
+        const existingSub = await registration.pushManager.getSubscription();
+
+        if (!enabled) {
+          if (existingSub) await existingSub.unsubscribe();
+        } else {
+          if (!("Notification" in window)) {
+            toast.error("This browser does not support notifications.");
+            return;
+          }
+
+          let permission = Notification.permission;
+          if (permission !== "granted") {
+            permission = await Notification.requestPermission();
+          }
+
+          if (permission !== "granted") {
+            toast.error("Notification permission was not granted.");
+            return;
+          }
+
+          let subscription = existingSub;
+          if (!subscription) {
+            const vapidKey = import.meta.env.VITE_VAPID_PUBLIC_KEY;
+            if (!vapidKey) {
+              toast.error("Push notifications are not configured.");
+              return;
+            }
+            subscription = await registration.pushManager.subscribe({
+              userVisibleOnly: true,
+              applicationServerKey: urlBase64ToUint8Array(vapidKey)
+            });
+          }
+
+          const token = localStorage.getItem("token") || localStorage.getItem("auth_token");
+          await axios.post("/api/auth/push-subscribe", subscription, {
+            headers: { Authorization: `Bearer ${token}` }
+          });
+        }
+      }
+
       toast.success(`Notifications ${enabled ? 'enabled' : 'disabled'}`);
     } catch (err) {
       toast.error("Failed to update notification settings");

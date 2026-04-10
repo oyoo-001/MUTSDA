@@ -1931,12 +1931,12 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
 
     if (!geminiRes.ok) {
       console.error('[AI Chat] Gemini API error:', geminiData);
-      return res.status(502).json({ message: 'AI service returned an error. Please try again.' });
+      return res.status(502).json({ message: 'We are seeing high AI traffic right now. Please try again in a moment.' });
     }
 
     const aiText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text;
     if (!aiText) {
-      return res.status(502).json({ message: 'No response from AI. Please try again.' });
+      return res.status(502).json({ message: 'AI is busy due to high traffic. Please try again in a moment.' });
     }
 
     // 5. Save the AI response
@@ -1950,7 +1950,7 @@ The current user's name is: ${req.user.full_name || 'Friend'}.`
     res.json({ reply: aiText, messageId: aiMsg.id });
   } catch (err) {
     console.error('[AI Chat] error:', err);
-    res.status(500).json({ message: 'Something went wrong. Please try again.' });
+    res.status(500).json({ message: 'Our AI is handling a lot of requests right now. Please try again shortly.' });
   }
 });
 
@@ -2380,6 +2380,11 @@ io.on('connection', (socket) => {
 
   socket.on('i_am_online', (user) => {
     if (user) {
+      // Join a stable per-user room so DMs can be delivered even when
+      // the user has not opened that specific DM channel yet.
+      const roomEmail = socket.user?.email || user.email;
+      if (roomEmail) socket.join(`user:${roomEmail}`);
+
       // Update last active status in DB
       User.update({ last_active: new Date() }, { where: { id: user.id } }).catch(() => { });
 
@@ -2440,7 +2445,16 @@ io.on('connection', (socket) => {
         // Return original replyTo for frontend rendering consistency
         if (replyTo) inflatedMessage.replyTo = replyTo;
         
-        io.to(data.channel).emit('newMessage', inflatedMessage);
+        // Deliver private messages through per-user rooms so unread counters
+        // can update for recipients who are not currently inside this DM room.
+        const senderRoom = data.sender_email ? `user:${data.sender_email}` : null;
+        const recipientRoom = recipientEmail ? `user:${recipientEmail}` : null;
+        if (senderRoom && recipientRoom) {
+          io.to(senderRoom).to(recipientRoom).emit('newMessage', inflatedMessage);
+        } else {
+          // Fallback to channel room if email parsing fails.
+          io.to(data.channel).emit('newMessage', inflatedMessage);
+        }
 
       } else {
         // General / group community chat
