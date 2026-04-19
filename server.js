@@ -74,6 +74,9 @@ const corsOptions = {
 app.use(cors(corsOptions));
 app.use(helmet({
   contentSecurityPolicy: false, // Disable CSP for now to prevent breaking external scripts/styles unless fully configured
+  crossOriginEmbedderPolicy: false, // This disables the strict check
+  crossOriginResourcePolicy: { policy: "cross-origin" }
+
 }));
 app.use(hpp());
 
