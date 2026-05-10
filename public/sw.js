@@ -61,6 +61,8 @@ self.addEventListener('fetch', (event) => {
         if (request.mode === 'navigate') {
           return caches.match('/');
         }
+        // Return a transparent placeholder for failed images/fonts/etc.
+        return new Response('', { status: 503, statusText: 'Service Unavailable' });
       })
   );
 });
