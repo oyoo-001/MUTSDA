@@ -100,6 +100,7 @@ export const apiClient = {
     Announcement: createEntityClient('announcements'),
     MediaItem: createEntityClient('media'),
     ContactMessage: createEntityClient('contact'),
+    Harambee: createEntityClient('harambees'),
     RSVP: createEntityClient('rsvps'),
     
     // Updated DirectMessage Entity to handle DM history

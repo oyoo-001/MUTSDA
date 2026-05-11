@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useSearchParams } from "react-router-dom";
+import { useSearchParams, useNavigate } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
 import { io } from "socket.io-client";
 import { format } from "date-fns";
@@ -10,6 +10,7 @@ import UpcomingEvents from "@/components/home/UpcomingEvents";
 import LatestSermons from "@/components/home/LatestSermons";
 import AnnouncementsBanner from "@/components/home/AnnouncementsBanner";
 import ProfileCompletionBanner from "@/components/home/ProfileCompletionBanner";
+import ActiveHarambees from "@/components/home/ActiveHarambees";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -26,6 +27,7 @@ const getYouTubeId = (url) => {
 
 export default function Home() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
   const [isLive, setIsLive] = useState(false);
@@ -59,6 +61,17 @@ export default function Home() {
     initialData: [],
   });
 
+  // 3a. Fetch Active Harambees
+  const { data: activeHarambees = [] } = useQuery({
+    queryKey: ["home-harambees"],
+    queryFn: async () => {
+      const data = await apiClient.entities.Harambee.list();
+      const active = (Array.isArray(data) ? data : []).filter(h => h.status === "active");
+      return active.slice(0, 3);
+    },
+    initialData: [],
+  });
+
   // 3. Fetch Announcements
   const { data: announcements = [] } = useQuery({
     queryKey: ["home-announcements"],
@@ -78,6 +91,13 @@ export default function Home() {
       }
     }
   }, [searchParams, announcements]);
+
+  const harambeeId = searchParams.get("harambee");
+  useEffect(() => {
+    if (harambeeId) {
+      navigate(`/harambee?harambee=${harambeeId}`, { replace: true });
+    }
+  }, [harambeeId, navigate]);
   // 4. Live Stream Status
   useEffect(() => {
     const signalingSocket = io(SOCKET_URL);
@@ -97,6 +117,10 @@ export default function Home() {
     
     signalingSocket.on('announcements_updated', () => {
       queryClient.invalidateQueries({ queryKey: ["home-announcements"] });
+    });
+
+    signalingSocket.on('harambees_updated', () => {
+      queryClient.invalidateQueries({ queryKey: ["home-harambees"] });
     });
 
     return () => {
@@ -211,7 +235,9 @@ const handleCopyLink = (id) => {
       )}
 
       <QuickInfoCards />
-      
+
+      <ActiveHarambees harambees={activeHarambees} />
+
       <section className="bg-white py-12">
         <div className="max-w-7xl mx-auto px-4">
           <UpcomingEvents events={events} />

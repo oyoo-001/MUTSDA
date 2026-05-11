@@ -11,6 +11,7 @@ import AdminEvents from "@/components/admin/AdminEvents";
 import AdminDonations from "@/components/admin/AdminDonations";
 import AdminAnnouncements from "@/components/admin/AdminAnnouncements";
 import AdminMedia from "@/components/admin/AdminMedia";
+import AdminHarambees from "@/components/admin/AdminHarambees";
 import AdminMessages from "@/components/admin/AdminMessages";
 import AdminChatGroups from "@/components/admin/AdminChatGroups";
 import SupportAdmin from "@/components/admin/SupportAdmin";
@@ -60,6 +61,9 @@ export default function AdminDashboard() {
       socketRef.current.on('donations_updated', () => {
         toast.info("New donation received!");
         queryClient.invalidateQueries({ queryKey: ["admin-donations"] });
+      });
+      socketRef.current.on('harambees_updated', () => {
+        queryClient.invalidateQueries({ queryKey: ["admin-harambees"] });
       });
       socketRef.current.on('support_queue_update', (updatedQueue) => {
         setSupportQueueCount(updatedQueue.length);
@@ -114,6 +118,13 @@ export default function AdminDashboard() {
     enabled: !!user,
   });
 
+  const { data: harambees } = useQuery({
+    queryKey: ["admin-harambees"],
+    queryFn: () => apiClient.entities.Harambee.list(),
+    initialData: [],
+    enabled: !!user,
+  });
+
   const { data: announcements } = useQuery({
     queryKey: ["admin-announcements"],
     queryFn: () => apiClient.entities.Announcement.filter({}, "-created_date"),
@@ -154,11 +165,12 @@ export default function AdminDashboard() {
 
   const renderContent = () => {
     switch (activeTab) {
-      case "overview": return <AdminOverview members={members} sermons={sermons} events={events} donations={donations} />;
+      case "overview": return <AdminOverview members={members} sermons={sermons} events={events} donations={donations} harambees={harambees} />;
       case "members": return <AdminMembers members={members} />;
       case "sermons": return <AdminSermons sermons={sermons} />;
       case "events": return <AdminEvents events={events} />;
       case "donations": return <AdminDonations donations={donations} />;
+      case "harambees": return <AdminHarambees harambees={harambees} />;
       case "announcements": return <AdminAnnouncements announcements={announcements} members={members} />;
       case "media": return <AdminMedia media={media} />;
       case "messages": return <AdminMessages messages={messages} />;

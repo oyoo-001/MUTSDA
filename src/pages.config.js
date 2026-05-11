@@ -57,6 +57,7 @@ import Sermons from './pages/Sermons';
 import Events from './pages/Events';
 import Gallery from './pages/Gallery';
 import Giving  from './pages/Giving';
+import Harambee  from './pages/Harambee';
 import MemberProfile from './pages/MemberProfile';
 import AdminDashboard from './pages/AdminDashboard';
 import __Layout from './Layout.jsx';
@@ -73,6 +74,7 @@ export const PAGES = {
     "Events": Events,
     "Gallery": Gallery,
     "Giving": Giving,
+    "Harambee": Harambee,
     "MemberProfile": MemberProfile,
     "AdminDashboard": AdminDashboard,
 }

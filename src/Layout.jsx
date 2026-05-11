@@ -7,7 +7,7 @@ import { io } from "socket.io-client";
 import { toast } from "sonner";
 import {
   Menu, X, ChevronDown, User, LogOut, LayoutDashboard,
-  Church, BookOpen, Calendar, Heart, Mail, Image, Bell, Home, MessageSquare, Radio
+  Church, BookOpen, Calendar, Heart, Mail, Image, Bell, Home, MessageSquare, Radio, Target
 } from "lucide-react"; // Assuming MessageCircle is not used here anymore
 import LiveChat from "@/components/chat/LiveChat";
 import { Button } from "@/components/ui/button";
@@ -28,6 +28,7 @@ const publicNav = [
   { name: "Ministries", page: "Ministries", icon: Heart },
   { name: "Gallery", page: "Gallery", icon: Image },
   { name: "Give", page: "Giving", icon: Heart },
+  { name: "Harambee", page: "Harambee", icon: Target },
   { name: "Chat", page: "Chat", icon: MessageSquare },
   { name: "Contact", page: "Contact", icon: Mail },
 ];

@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { createPageUrl } from "@/utils";
 import {
   LayoutDashboard, Users, BookOpen, Calendar, Heart, Headphones,
-  Bell, Image, MessageSquare, Church, ChevronLeft, MessageCircle, Radio, Send
+  Bell, Image, MessageSquare, Church, ChevronLeft, MessageCircle, Radio, Send, Target
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 
@@ -13,6 +13,7 @@ const navItems = [
   { id: "events", label: "Events", icon: Calendar },
   { id: "streamer", label: "Live Stream", icon: Radio },
   { id: "donations", label: "Donations", icon: Heart },
+  { id: "harambees", label: "Harambees", icon: Target },
   { id: "announcements", label: "Announcements", icon: Bell },
   { id: "media", label: "Media", icon: Image },
   { id: "chat-groups", label: "Chat Groups", icon: MessageCircle },

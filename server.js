@@ -346,6 +346,37 @@ const RSVP = sequelize.define('RSVP', {
   status: { type: DataTypes.ENUM('attending', 'not_attending', 'maybe'), defaultValue: 'attending' },
 }, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
 
+const Harambee = sequelize.define('Harambee', {
+  title: { type: DataTypes.STRING, allowNull: false },
+  description: DataTypes.TEXT,
+  target_amount: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
+  amount_collected: { type: DataTypes.DECIMAL(12, 2), defaultValue: 0 },
+  treasurer: DataTypes.STRING,
+  guests: DataTypes.TEXT,
+  event_date: DataTypes.DATEONLY,
+  banner_image_url: DataTypes.STRING,
+  published: { type: DataTypes.BOOLEAN, defaultValue: true },
+  status: { type: DataTypes.ENUM('active', 'completed', 'cancelled'), defaultValue: 'active' },
+  live_challenge: { type: DataTypes.BOOLEAN, defaultValue: false },
+  live_challenge_started_at: DataTypes.DATE,
+}, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
+
+const HarambeeContribution = sequelize.define('HarambeeContribution', {
+  harambee_id: { type: DataTypes.INTEGER, allowNull: false },
+  donor_name: DataTypes.STRING,
+  donor_email: DataTypes.STRING,
+  amount: DataTypes.DECIMAL(10, 2),
+  transaction_reference: { type: DataTypes.STRING, unique: true },
+  status: { type: DataTypes.STRING, defaultValue: 'pending' },
+}, { timestamps: true, createdAt: 'created_date', updatedAt: 'updated_date' });
+
+const HarambeeLiveChat = sequelize.define('HarambeeLiveChat', {
+  harambee_id: { type: DataTypes.INTEGER, allowNull: false },
+  sender_name: DataTypes.STRING,
+  sender_email: DataTypes.STRING,
+  message: { type: DataTypes.TEXT, allowNull: false },
+}, { timestamps: true, createdAt: 'created_date', updatedAt: false });
+
 // Define relationships for Chat
 User.belongsToMany(ChatGroup, { through: 'ChatGroupMembers' });
 ChatGroup.belongsToMany(User, { through: 'ChatGroupMembers' });
@@ -1381,6 +1412,259 @@ const userController = {
   },
 };
 const rsvpController = createController(RSVP, 'rsvps');
+
+const harambeeController = {
+  ...createController(Harambee, 'harambees'),
+  getAll: async (req, res) => {
+    try {
+      const harambees = await Harambee.findAll({
+        where: { published: true },
+        order: [['created_date', 'DESC']]
+      });
+      const parsed = harambees.map(h => {
+        const json = h.toJSON();
+        if (json.guests) try { json.guests = JSON.parse(json.guests); } catch (e) { json.guests = []; }
+        return json;
+      });
+      res.json(parsed);
+    } catch (err) {
+      console.error('Error in Harambee getAll:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  getById: async (req, res) => {
+    try {
+      const item = await Harambee.findByPk(req.params.id);
+      if (!item) return res.status(404).json({ message: 'Harambee not found' });
+      const json = item.toJSON();
+      if (json.guests) try { json.guests = JSON.parse(json.guests); } catch (e) { json.guests = []; }
+      res.json(json);
+    } catch (err) {
+      console.error('Error in Harambee getById:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  create: async (req, res) => {
+    try {
+      const payload = { ...req.body };
+      if (payload.guests && Array.isArray(payload.guests)) {
+        payload.guests = JSON.stringify(payload.guests);
+      }
+      const item = await Harambee.create(payload);
+      if (req.app.get('io')) req.app.get('io').emit('harambees_updated');
+      res.status(201).json(item);
+    } catch (err) {
+      console.error('Error in Harambee create:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  update: async (req, res) => {
+    try {
+      const item = await Harambee.findByPk(req.params.id);
+      if (!item) return res.status(404).json({ message: 'Harambee not found' });
+      const payload = { ...req.body };
+      if (payload.guests && Array.isArray(payload.guests)) {
+        payload.guests = JSON.stringify(payload.guests);
+      }
+      if (payload.target_amount) payload.target_amount = parseFloat(payload.target_amount);
+      await item.update(payload);
+      if (req.app.get('io')) req.app.get('io').emit('harambees_updated');
+      res.json(item);
+    } catch (err) {
+      console.error('Error in Harambee update:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  getContributions: async (req, res) => {
+    try {
+      const contributions = await HarambeeContribution.findAll({
+        where: { harambee_id: req.params.id, status: 'success' },
+        order: [['created_date', 'DESC']]
+      });
+      res.json(contributions);
+    } catch (err) {
+      console.error('Error in Harambee getContributions:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  contribute: async (req, res) => {
+    try {
+      const { reference, amount, donor_name, donor_email } = req.body;
+      const harambee = await Harambee.findByPk(req.params.id);
+      if (!harambee) return res.status(404).json({ message: 'Harambee not found' });
+      if (harambee.status !== 'active') return res.status(400).json({ message: 'This harambee is no longer accepting contributions' });
+
+      const existing = await HarambeeContribution.findOne({ where: { transaction_reference: reference } });
+      if (existing && existing.status === 'success') {
+        return res.status(200).json({ ...existing.toJSON(), duplicate: true });
+      }
+
+      const paystackResponse = await new Promise((resolve, reject) => {
+        const options = {
+          hostname: 'api.paystack.co',
+          port: 443,
+          path: `/transaction/verify/${encodeURIComponent(reference)}`,
+          method: 'GET',
+          headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+        };
+        const apiReq = https.request(options, apiRes => {
+          let data = '';
+          apiRes.on('data', chunk => { data += chunk; });
+          apiRes.on('end', () => {
+            try { resolve(JSON.parse(data)); } catch (e) { reject(new Error('Failed to parse Paystack response')); }
+          });
+        });
+        apiReq.on('error', err => reject(err));
+        apiReq.end();
+      });
+
+      if (!paystackResponse.status || paystackResponse.data?.status !== 'success') {
+        return res.status(400).json({ message: 'Transaction verification failed.' });
+      }
+
+      const txData = paystackResponse.data;
+      const paidAmount = txData.amount / 100;
+      if (amount && paidAmount < parseFloat(amount)) {
+        return res.status(400).json({ message: 'Amount mismatch.' });
+      }
+
+      const resolvedName = txData.metadata?.donor_name || donor_name || 'Anonymous';
+      const resolvedEmail = txData.customer?.email || donor_email;
+
+      const [contribution, created] = await HarambeeContribution.findOrCreate({
+        where: { transaction_reference: reference },
+        defaults: {
+          harambee_id: harambee.id,
+          donor_name: resolvedName,
+          donor_email: resolvedEmail,
+          amount: paidAmount,
+          status: 'success',
+        },
+      });
+
+      if (!created && contribution.status !== 'success') {
+        await contribution.update({ status: 'success' });
+      }
+
+      const totalCollected = parseFloat(harambee.amount_collected) + paidAmount;
+      await harambee.update({ amount_collected: totalCollected });
+
+      if (req.app.get('io')) {
+        req.app.get('io').emit('harambees_updated');
+        req.app.get('io').emit('harambee_contribution', {
+          harambee_id: harambee.id,
+          amount_collected: totalCollected,
+          target_amount: parseFloat(harambee.target_amount),
+          contribution: { donor_name: resolvedName, amount: paidAmount },
+        });
+      }
+
+      return res.status(created ? 201 : 200).json(contribution);
+    } catch (err) {
+      console.error('Harambee contribute error:', err);
+      res.status(500).json({ message: 'Server error processing contribution.' });
+    }
+  },
+  webhook: async (req, res) => {
+    const secret = process.env.PAYSTACK_SECRET_KEY;
+    if (!secret) return res.status(500).send('Server configuration error');
+    try {
+      if (!req.rawBody) return res.status(500).send('Server configuration error');
+      const payload = req.rawBody;
+      const hash = crypto.createHmac('sha512', secret).update(payload).digest('hex');
+      const receivedSig = req.headers['x-paystack-signature'] || '';
+      const hashBuf = Buffer.from(hash, 'hex');
+      const sigBuf = Buffer.from(receivedSig, 'hex');
+      const sigValid = hashBuf.length === sigBuf.length && crypto.timingSafeEqual(hashBuf, sigBuf);
+      if (!sigValid) return res.sendStatus(400);
+      const event = req.body;
+      if (event.event === 'charge.success') {
+        const { reference, amount, metadata, customer } = event.data;
+        const harambeeId = metadata?.harambee_id;
+        if (!harambeeId) return res.sendStatus(200);
+        try {
+          const harambee = await Harambee.findByPk(harambeeId);
+          if (!harambee) return res.sendStatus(200);
+          const [contribution, created] = await HarambeeContribution.findOrCreate({
+            where: { transaction_reference: reference },
+            defaults: {
+              harambee_id: harambeeId,
+              donor_name: metadata?.donor_name || 'Anonymous',
+              donor_email: customer?.email || '',
+              amount: amount / 100,
+              status: 'success',
+            },
+          });
+          if (!created && contribution.status !== 'success') {
+            await contribution.update({ status: 'success' });
+          }
+          let totalCollected = parseFloat(harambee.amount_collected);
+          if (created) {
+            totalCollected += amount / 100;
+            await harambee.update({ amount_collected: totalCollected });
+          }
+          console.log(`[Harambee Webhook] ✅ Transaction ${reference} — KES ${amount / 100} to harambee #${harambeeId}`);
+          const io = req.app.get('io');
+          if (io) {
+            io.emit('harambees_updated');
+            io.emit('harambee_contribution', {
+              harambee_id: harambeeId,
+              amount_collected: totalCollected,
+              target_amount: parseFloat(harambee.target_amount),
+              contribution: { donor_name: metadata?.donor_name || 'Anonymous', amount: amount / 100 },
+            });
+          }
+        } catch (dbError) {
+          console.error('[Harambee Webhook] DB error:', dbError.message);
+        }
+      }
+      return res.sendStatus(200);
+    } catch (err) {
+      console.error('[Harambee Webhook] Error:', err.message);
+      return res.sendStatus(500);
+    }
+  },
+  toggleLive: async (req, res) => {
+    try {
+      const item = await Harambee.findByPk(req.params.id);
+      if (!item) return res.status(404).json({ message: 'Harambee not found' });
+      const now = new Date();
+      const newState = !item.live_challenge;
+      await item.update({
+        live_challenge: newState,
+        live_challenge_started_at: newState ? now : null,
+      });
+      if (req.app.get('io')) {
+        req.app.get('io').emit('harambee_live_toggle', { harambee_id: item.id, live_challenge: newState });
+      }
+      res.json({ live_challenge: newState, live_challenge_started_at: newState ? now : null });
+    } catch (err) {
+      console.error('Error toggling live challenge:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+  leaderboard: async (req, res) => {
+    try {
+      const contributions = await HarambeeContribution.findAll({
+        where: { harambee_id: req.params.id, status: 'success' },
+        attributes: ['donor_name', 'amount', 'created_date'],
+        order: [['amount', 'DESC']],
+        limit: 100,
+      });
+      let rank = 1;
+      const leaderboard = contributions.map(c => ({
+        rank: rank++,
+        donor_name: c.donor_name,
+        amount: parseFloat(c.amount),
+        created_date: c.created_date,
+      }));
+      res.json(leaderboard);
+    } catch (err) {
+      console.error('Error in leaderboard:', err);
+      res.status(500).json({ message: 'Server Error' });
+    }
+  },
+};
 const chatMessageController = {
   ...createController(ChatMessage, 'chat'),
   getAll: async (req, res) => {
@@ -1662,6 +1946,31 @@ userRouter.get('/:id', protect, admin, userController.getById);
 userRouter.put('/:id', protect, admin, userController.update);
 userRouter.delete('/:id', protect, admin, userController.delete);
 
+const harambeeRouter = express.Router();
+harambeeRouter.post('/webhook', harambeeController.webhook);
+harambeeRouter.get('/', harambeeController.getAll);
+harambeeRouter.get('/:id', harambeeController.getById);
+harambeeRouter.get('/:id/contributions', protect, admin, harambeeController.getContributions);
+harambeeRouter.post('/', protect, admin, harambeeController.create);
+harambeeRouter.put('/:id', protect, admin, harambeeController.update);
+harambeeRouter.delete('/:id', protect, admin, harambeeController.delete);
+harambeeRouter.post('/:id/contribute', harambeeController.contribute);
+harambeeRouter.post('/:id/toggle-live', protect, admin, harambeeController.toggleLive);
+harambeeRouter.get('/:id/leaderboard', harambeeController.leaderboard);
+harambeeRouter.get('/:id/chat-history', async (req, res) => {
+  try {
+    const messages = await HarambeeLiveChat.findAll({
+      where: { harambee_id: req.params.id },
+      order: [['created_date', 'ASC']],
+      limit: 100,
+    });
+    res.json(messages);
+  } catch (err) {
+    console.error('[LiveChat] history error:', err);
+    res.status(500).json({ message: 'Server Error' });
+  }
+});
+
 const rsvpRouter = express.Router();
 rsvpRouter.get('/', protect, rsvpController.getAll);
 rsvpRouter.post('/', protect, rsvpController.create);
@@ -1695,6 +2004,33 @@ chatRouter.post('/upload', protect, upload.single('file'), processFileUpload, as
   } catch (err) {
     console.error('Error in chat file upload:', err);
     res.status(500).json({ message: 'Server error uploading chat file' });
+  }
+});
+
+// Generic image upload endpoint (for admin banners, etc.)
+const uploadRouter = express.Router();
+uploadRouter.post('/image', protect, upload.single('file'), processFileUpload, async (req, res) => {
+  if (!req.file || !req.cloudinaryPreppedFile) {
+    return res.status(400).json({ message: 'No file uploaded.' });
+  }
+  if (req.cloudinaryPreppedFile.resourceType !== 'image') {
+    return res.status(400).json({ message: 'Only image files are allowed.' });
+  }
+  try {
+    const prepped = req.cloudinaryPreppedFile;
+    const result = await cloudinary.uploader.upload(prepped.localPath, {
+      resource_type: 'image',
+      folder: 'uploads/banners',
+      access_mode: 'public',
+      public_id: `banner-${Date.now()}-${prepped.originalName.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9]/g, "_")}`
+    });
+    if (fs.existsSync(prepped.localPath)) {
+      fs.unlinkSync(prepped.localPath);
+    }
+    res.json({ file_url: result.secure_url });
+  } catch (err) {
+    console.error('[Upload] Image upload error:', err);
+    res.status(500).json({ message: 'Image upload failed.' });
   }
 });
 
@@ -1972,9 +2308,11 @@ app.use('/api/donations', donationRouter);
 app.use('/api/media', mediaItemRouter);
 app.use('/api/contact', contactMessageRouter);
 app.use('/api/users', userRouter);
+app.use('/api/harambees', harambeeRouter);
 app.use('/api/rsvps', rsvpRouter);
 app.use('/api/chatmessages', chatRouter);
 app.use('/api/chat-groups', chatGroupRouter);
+app.use('/api/upload', uploadRouter);
 app.use('/api/dm', protect, dmRouter);
 app.use('/api/core', protect, admin, coreRouter);
 app.use('/api/ai-chat', aiChatRouter);
@@ -2485,6 +2823,45 @@ io.on('connection', (socket) => {
     }
   });
 
+  // ── Live Harambee Challenge Chat ──────────────────────────
+  socket.on('harambee_live_chat', async (data) => {
+    const { harambee_id, message, sender_name, sender_email } = data;
+    if (!harambee_id || !message || !message.trim()) return;
+    const msgData = {
+      harambee_id,
+      sender_name: sender_name || 'Anonymous',
+      sender_email: sender_email || '',
+      message: message.trim(),
+      created_date: new Date(),
+    };
+    try {
+      await HarambeeLiveChat.create({
+        harambee_id,
+        sender_name: msgData.sender_name,
+        sender_email: msgData.sender_email,
+        message: msgData.message,
+      });
+    } catch (err) {
+      console.error('[LiveChat] DB save error:', err.message);
+    }
+    io.to(`harambee_live_${harambee_id}`).emit('harambee_live_message', msgData);
+  });
+
+  socket.on('harambee_live_join', (harambee_id) => {
+    if (!harambee_id) return;
+    socket.join(`harambee_live_${harambee_id}`);
+    socket.harambeeLiveId = harambee_id;
+    io.to(`harambee_live_${harambee_id}`).emit('harambee_live_user_joined', {
+      socket_id: socket.id,
+      sender_name: socket.user?.full_name || 'Anonymous',
+    });
+  });
+
+  socket.on('harambee_live_leave', (harambee_id) => {
+    if (!harambee_id) return;
+    socket.leave(`harambee_live_${harambee_id}`);
+  });
+
   socket.on('deleteMessage', async (data) => {
     try {
       const { messageId } = data;
@@ -2789,6 +3166,17 @@ app.get('*', async (req, res) => {
         meta.description = announcement.content ? announcement.content.substring(0, 160) : meta.description;
         // Use a specific announcement image or the church logo
         meta.image = "https://mutsda.onrender.com/announcement-share-banner.jpg";
+      }
+    }
+    // 3. If the link is for a Harambee
+    else if (req.query.harambee) {
+      const harambee = await sequelize.models.Harambee.findByPk(req.query.harambee);
+      if (harambee) {
+        const collected = parseFloat(harambee.amount_collected) || 0;
+        const target = parseFloat(harambee.target_amount) || 1;
+        meta.title = `${harambee.title} — MUTSDA Harambee`;
+        meta.description = `Support this fundraiser! KES ${collected.toLocaleString()} raised of KES ${target.toLocaleString()} target. ${harambee.description ? harambee.description.substring(0, 120) : ''}`;
+        meta.image = harambee.banner_image_url || meta.image;
       }
     }
   } catch (err) {
