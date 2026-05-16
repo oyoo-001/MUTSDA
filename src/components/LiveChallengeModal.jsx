@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from "react";
-import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { apiClient, SOCKET_URL, getBackendUrl } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -9,7 +9,7 @@ import { io } from "socket.io-client";
 import { usePaystackPayment } from "react-paystack";
 import { toast } from "sonner";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE = getBackendUrl();
 
 const rankIcons = {
   1: <Trophy className="w-5 h-5 text-yellow-500" />,

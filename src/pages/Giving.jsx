@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { apiClient } from "@/api/base44Client";
+import { apiClient, getBackendUrl } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -8,8 +8,7 @@ import { motion } from "framer-motion";
 import { toast } from "sonner";
 import { usePaystackPayment } from "react-paystack";
 
-// Resolve the backend base URL from the Vite env
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE = getBackendUrl();
 
 const donationTypes = [
   { value: "tithe", label: "Tithe", desc: "Return God's faithful tenth" },

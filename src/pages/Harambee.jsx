@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
-import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { apiClient, SOCKET_URL, getBackendUrl } from "@/api/base44Client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -14,7 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import LiveChallengeModal from "@/components/LiveChallengeModal";
 
-const API_BASE = import.meta.env.VITE_API_BASE_URL || "http://localhost:5000";
+const API_BASE = getBackendUrl();
 
 export default function Harambee() {
   const [searchParams] = useSearchParams();
