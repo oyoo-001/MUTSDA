@@ -6,9 +6,10 @@ import { Label } from "@/components/ui/label";
 import { Heart, CheckCircle2 } from "lucide-react";
 import { motion } from "framer-motion";
 import { toast } from "sonner";
-import { usePaystackPayment } from "react-paystack";
 
 const API_BASE = getBackendUrl();
+
+const isCapacitor = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
 
 const donationTypes = [
   { value: "tithe", label: "Tithe", desc: "Return God's faithful tenth" },
@@ -32,9 +33,6 @@ export default function Giving() {
   const [submitting, setSubmitting] = useState(false);
   const [waitingForPayment, setWaitingForPayment] = useState(false);
   const [done, setDone] = useState(false);
-  
-  // Use a state for reference to ensure it only changes when we want it to
-  const [ref, setRef] = useState(`mutsda-${Date.now().toString(36)}`);
 
   useEffect(() => {
     const load = async () => {
@@ -56,35 +54,14 @@ export default function Giving() {
     load();
   }, []);
 
-  // useMemo prevents the "Invalid Key" or "Re-render" loop errors
-  const paystackConfig = useMemo(() => {
-    const amountInKobo = Math.round(parseFloat(form.amount || "0") * 100);
-    
-    return {
-      reference: ref,
-      email: form.donor_email,
-      amount: amountInKobo, 
-      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
-      currency: "KES",
-      channels: ["card", "mobile_money"],
-      metadata: {
-        donor_name: form.donor_name,
-        donation_type: form.donation_type,
-        custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
-      },
-    };
-  }, [form.amount, form.donor_email, form.donor_name, form.donation_type, ref]);
-
-  const initializePayment = usePaystackPayment(paystackConfig);
-
-  const onPaystackSuccess = async (response) => {
+  const verifyPayment = async (reference) => {
     setSubmitting(true);
     try {
       const res = await fetch(`${API_BASE}/api/donations/verify`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          reference: response.reference,
+          reference,
           amount: parseFloat(form.amount),
           donor_name: form.donor_name,
           donor_email: form.donor_email,
@@ -104,19 +81,52 @@ export default function Giving() {
     } catch (err) {
       console.error("[Giving] verify error:", err);
       toast.error(err.message || "Payment received, but recording failed. Please contact support.");
-      setWaitingForPayment(false);
     } finally {
       setSubmitting(false);
       setWaitingForPayment(false);
-      // Generate a new reference for the next attempt
-      setRef(`mutsda-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`);
+    }
+  };
+
+  const handleCapacitorPayment = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/donations/initialize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.donor_email,
+          amount: parseFloat(form.amount),
+          donor_name: form.donor_name,
+          donation_type: form.donation_type,
+          custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
+        }),
+      });
+      const data = await res.json();
+      if (!data.status) throw new Error(data.message || 'Failed to initialize payment.');
+
+      const { Browser } = await import('@capacitor/browser');
+      const { App } = await import('@capacitor/app');
+
+      const handler = await App.addListener('appUrlOpen', async (event) => {
+        if (event.url.startsWith('mutsdaapp://payment/callback')) {
+          const url = new URL(event.url);
+          const ref = url.searchParams.get('reference');
+          await Browser.close();
+          handler.remove();
+          if (ref) verifyPayment(ref);
+        }
+      });
+
+      await Browser.open({ url: data.data.authorization_url });
+    } catch (err) {
+      console.error('[Giving] Capacitor payment error:', err);
+      toast.error(err.message || 'Payment failed.');
+      setWaitingForPayment(false);
     }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    // Final validation
     if (!form.amount || parseFloat(form.amount) <= 0) {
       toast.error("Please enter a valid amount");
       return;
@@ -128,14 +138,71 @@ export default function Giving() {
     }
 
     setWaitingForPayment(true);
-    initializePayment({ 
-      onSuccess: onPaystackSuccess, 
-      onClose: () => {
-        toast.info("Payment window closed.");
-        setWaitingForPayment(false);
-        // Refresh reference in case they want to try again immediately
-        setRef(`mutsda-${Date.now().toString(36)}`);
-      } 
+
+    if (isCapacitor) {
+      handleCapacitorPayment();
+    } else {
+      handleLegacyPayment();
+    }
+  };
+
+  /* Legacy Paystack popup flow (web) */
+  const [ref, setRef] = useState(`mutsda-${Date.now().toString(36)}`);
+
+  const paystackConfig = useMemo(() => {
+    const amountInKobo = Math.round(parseFloat(form.amount || "0") * 100);
+    return {
+      reference: ref,
+      email: form.donor_email,
+      amount: amountInKobo,
+      publicKey: import.meta.env.VITE_PAYSTACK_PUBLIC_KEY,
+      currency: "KES",
+      channels: ["card", "mobile_money"],
+      metadata: {
+        donor_name: form.donor_name,
+        donation_type: form.donation_type,
+        custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
+      },
+    };
+  }, [form.amount, form.donor_email, form.donor_name, form.donation_type, ref]);
+
+  const handleLegacyPayment = () => {
+    import('react-paystack').then(({ usePaystackPayment }) => {
+      const initializePayment = usePaystackPayment(paystackConfig);
+      initializePayment({
+        onSuccess: async (response) => {
+          setSubmitting(true);
+          try {
+            const res = await fetch(`${API_BASE}/api/donations/verify`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                reference: response.reference,
+                amount: parseFloat(form.amount),
+                donor_name: form.donor_name,
+                donor_email: form.donor_email,
+                donation_type: form.donation_type,
+                custom_fund_name: form.donation_type === "custom" ? form.custom_fund_name : undefined,
+              }),
+            });
+            const data = await res.json();
+            if (!res.ok) throw new Error(data.message || "Failed to record donation.");
+            setDone(true);
+            toast.success("Thank you for your generous giving! 🙏");
+          } catch (err) {
+            toast.error(err.message || "Payment received, but recording failed.");
+          } finally {
+            setSubmitting(false);
+            setWaitingForPayment(false);
+            setRef(`mutsda-${Date.now().toString(36)}-${Math.random().toString(36).substring(2, 5)}`);
+          }
+        },
+        onClose: () => {
+          toast.info("Payment window closed.");
+          setWaitingForPayment(false);
+          setRef(`mutsda-${Date.now().toString(36)}`);
+        },
+      });
     });
   };
 

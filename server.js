@@ -49,6 +49,8 @@ const corsOptions = {
       process.env.CORS_ORIGIN,
       'http://localhost:5173',
       'http://localhost:5000',
+      'http://localhost',
+      'capacitor://localhost',
       'https://mutsda.onrender.com',
       'https://philologic-debi-unsophisticatedly.ngrok-free.dev'
     ].filter(Boolean);
@@ -1900,6 +1902,65 @@ authRouter.post('/push-subscribe', protect, pushController.subscribe);
 authRouter.post('/push-test', protect, pushController.test);
 authRouter.post('/push-broadcast', protect, admin, pushController.broadcast); // Admin: manually broadcast to all
 
+// Google OAuth redirect flow (for Capacitor / mobile app)
+authRouter.get('/google/init', (req, res) => {
+  const redirectUri = 'https://mutsda.onrender.com/api/auth/google/callback';
+  const url = `https://accounts.google.com/o/oauth2/v2/auth?` +
+    `client_id=${process.env.GOOGLE_CLIENT_ID}&` +
+    `redirect_uri=${encodeURIComponent(redirectUri)}&` +
+    `response_type=code&` +
+    `scope=openid%20email%20profile&` +
+    `access_type=offline&` +
+    `prompt=select_account`;
+  res.redirect(url);
+});
+
+authRouter.get('/google/callback', async (req, res) => {
+  const { code } = req.query;
+  if (!code) {
+    return res.redirect('https://mutsda.onrender.com/auth?view=login&error=no_code');
+  }
+
+  const oauth2Client = new OAuth2Client(
+    process.env.GOOGLE_CLIENT_ID,
+    process.env.GOOGLE_CLIENT_SECRET,
+    'https://mutsda.onrender.com/api/auth/google/callback'
+  );
+
+  try {
+    const { tokens } = await oauth2Client.getToken(code);
+    const ticket = await googleClient.verifyIdToken({
+      idToken: tokens.id_token,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    const { name, email, picture } = ticket.getPayload();
+
+    let user = await User.findOne({ where: { email } });
+    if (user && user.is_banned) {
+      return res.redirect('https://mutsda.onrender.com/auth?view=login&error=banned');
+    }
+
+    if (!user) {
+      const salt = await bcrypt.genSalt(10);
+      const randomPassword = crypto.randomBytes(16).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, salt);
+      user = await User.create({
+        full_name: name,
+        email,
+        password: hashedPassword,
+        profile_photo_url: picture,
+        role: 'member',
+      });
+    }
+
+    const token = jwt.sign({ id: user.id }, process.env.JWT_SECRET, { expiresIn: '30d' });
+    res.redirect(`mutsdaapp://auth/callback?token=${token}`);
+  } catch (err) {
+    console.error('Google OAuth callback error:', err);
+    res.redirect('https://mutsda.onrender.com/auth?view=login&error=auth_failed');
+  }
+});
+
 const sermonRouter = express.Router();
 sermonRouter.get('/', sermonController.getAll); // Public
 sermonRouter.get('/:id', sermonController.getById); // Public
@@ -1929,6 +1990,67 @@ donationRouter.post('/webhook', donationController.webhook);           // Paysta
 donationRouter.post('/verify', donationController.verify);             // Frontend verify-and-save (public)
 donationRouter.get('/', protect, donationController.getAll);    // Admin only
 donationRouter.post('/', donationController.create);                   // Legacy create (public)
+
+// Paystack initialize (for Capacitor / mobile app redirect flow)
+donationRouter.post('/initialize', async (req, res) => {
+  const { email, amount, ...metadata } = req.body;
+  if (!email || !amount) {
+    return res.status(400).json({ message: 'Email and amount are required.' });
+  }
+  try {
+    const response = await axios.post('https://api.paystack.co/transaction/initialize', {
+      email,
+      amount: Math.round(parseFloat(amount) * 100),
+      currency: 'KES',
+      callback_url: 'https://mutsda.onrender.com/api/donations/callback',
+      metadata,
+    }, {
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+    });
+    res.json(response.data);
+  } catch (err) {
+    console.error('Paystack initialize error:', err.response?.data || err.message);
+    res.status(500).json({ message: 'Failed to initialize payment.' });
+  }
+});
+
+// Paystack redirect callback (for Capacitor / mobile app)
+donationRouter.get('/callback', async (req, res) => {
+  const { reference, trxref } = req.query;
+  const ref = reference || trxref;
+  if (!ref) {
+    return res.status(400).send('Missing payment reference.');
+  }
+  try {
+    const verifyRes = await axios.get(`https://api.paystack.co/transaction/verify/${ref}`, {
+      headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
+    });
+    const txData = verifyRes.data;
+    if (txData.status && txData.data?.status === 'success') {
+      const meta = txData.data.metadata || {};
+      const existing = await Donation.findOne({ where: { transaction_reference: ref } });
+      if (!existing) {
+        await Donation.create({
+          transaction_reference: ref,
+          amount: (txData.data.amount / 100).toString(),
+          donor_name: meta.donor_name || 'Anonymous',
+          donor_email: txData.data.customer?.email || meta.email || 'unknown@email.com',
+          donation_type: meta.donation_type || 'offering',
+          custom_fund_name: meta.custom_fund_name || null,
+          status: 'success',
+          channel: txData.data.channel || 'paystack',
+        });
+      }
+      if (req.app.get('io')) {
+        req.app.get('io').emit('donations_updated');
+      }
+    }
+    res.redirect(`mutsdaapp://payment/callback?reference=${ref}`);
+  } catch (err) {
+    console.error('Paystack callback error:', err.response?.data || err.message);
+    res.redirect(`mutsdaapp://payment/callback?reference=${ref}&error=verification_failed`);
+  }
+});
 
 const mediaItemRouter = express.Router();
 mediaItemRouter.get('/', mediaItemController.getAll); // Public

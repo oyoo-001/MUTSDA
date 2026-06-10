@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { pagesConfig } from './pages.config'
-import { BrowserRouter as Router, Route, Routes } from 'react-router-dom';
+import { BrowserRouter as Router, Route, Routes, useNavigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
 import ResetPasswordPage from './pages/ResetPassword';
 import AuthPage from './pages/Auth';
@@ -10,7 +10,6 @@ import ChatPage from './pages/Chat';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import { Church } from 'lucide-react';
 import Live from './pages/Live';
-import { GoogleOAuthProvider } from '@react-oauth/google';
 import io from 'socket.io-client';
 import { SOCKET_URL, apiClient } from "@/api/base44Client";
 import React, { useState, useEffect, useRef } from "react";
@@ -109,19 +108,57 @@ const AuthenticatedApp = () => {
 };
 
 
+function DeepLinkHandler({ children }) {
+  const navigate = useNavigate();
+  const { checkUserAuth } = useAuth();
+
+  useEffect(() => {
+    const setupDeepLink = async () => {
+      const { App } = await import('@capacitor/app');
+      await App.addListener('appUrlOpen', (event) => {
+        const url = new URL(event.url);
+        const { pathname, searchParams } = url;
+
+        if (pathname === '/auth/callback' || url.href.startsWith('mutsdaapp://auth/callback')) {
+          const token = searchParams.get('token');
+          if (token) {
+            localStorage.setItem('token', token);
+            checkUserAuth().then(() => navigate('/', { replace: true }));
+          } else {
+            navigate('/auth?view=login', { replace: true });
+          }
+        }
+
+        if (pathname === '/payment/callback' || url.href.startsWith('mutsdaapp://payment/callback')) {
+          const ref = searchParams.get('reference');
+          if (ref) {
+            navigate(`/payment/success?reference=${ref}`, { replace: true });
+          }
+        }
+      });
+    };
+
+    if (typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.()) {
+      setupDeepLink();
+    }
+  }, []);
+
+  return children;
+}
+
 function App() {
 
   return (
-    <GoogleOAuthProvider clientId={import.meta.env.VITE_GOOGLE_CLIENT_ID || "YOUR_GOOGLE_CLIENT_ID_HERE"}>
-      <AuthProvider>
-        <QueryClientProvider client={queryClientInstance}>
-          <Router>
+    <AuthProvider>
+      <QueryClientProvider client={queryClientInstance}>
+        <Router>
+          <DeepLinkHandler>
             <AuthenticatedApp />
-          </Router>
-          <Toaster />
-        </QueryClientProvider>
-      </AuthProvider>
-    </GoogleOAuthProvider>
+          </DeepLinkHandler>
+        </Router>
+        <Toaster />
+      </QueryClientProvider>
+    </AuthProvider>
   )
 }
 

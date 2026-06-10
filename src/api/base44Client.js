@@ -2,12 +2,7 @@ import axios from 'axios';
 
 // Helper to determine the backend URL dynamically
 export const getBackendUrl = () => {
-  if (import.meta.env.VITE_API_URL) return import.meta.env.VITE_API_URL;
-  // If running on standard dev port (5173), assume backend is on 5000 on the same host
-  if (window.location.port === '5173') {
-    return `${window.location.protocol}//${window.location.hostname}:5000`;
-  }
-  return window.location.origin;
+  return 'https://mutsda.onrender.com';
 };
 
 export const SOCKET_URL = getBackendUrl();

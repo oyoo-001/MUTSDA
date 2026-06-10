@@ -6,10 +6,10 @@ import { Progress } from "@/components/ui/progress";
 import { Crown, Medal, TrendingUp, Trophy, Send, X, Heart, Sparkles, Users } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { io } from "socket.io-client";
-import { usePaystackPayment } from "react-paystack";
 import { toast } from "sonner";
 
 const API_BASE = getBackendUrl();
+const isCapacitor = typeof window !== 'undefined' && window.Capacitor?.isNativePlatform?.();
 
 const rankIcons = {
   1: <Trophy className="w-5 h-5 text-yellow-500" />,
@@ -28,7 +28,6 @@ export default function LiveChallengeModal({ harambee, onClose }) {
   const [chatMessages, setChatMessages] = useState([]);
   const [chatInput, setChatInput] = useState("");
   const [amountCollected, setAmountCollected] = useState(parseFloat(harambee.amount_collected) || 0);
-  const [ref, setRef] = useState(`lhc-${Date.now().toString(36)}`);
   const chatEndRef = useRef(null);
   const [user, setUser] = useState(null);
   const [showContribute, setShowContribute] = useState(false);
@@ -142,7 +141,70 @@ export default function LiveChallengeModal({ harambee, onClose }) {
     setChatInput("");
   };
 
-  const paystackConfig = React.useMemo(() => {
+  const handleContribute = (e) => {
+    e.preventDefault();
+    if (!form.amount || parseFloat(form.amount) <= 0) { toast.error("Enter a valid amount"); return; }
+    if (isCapacitor) {
+      handleCapacitorContribute();
+    } else {
+      handleLegacyContribute();
+    }
+  };
+
+  const handleCapacitorContribute = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/donations/initialize`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: form.donor_email,
+          amount: parseFloat(form.amount),
+          donor_name: form.donor_name,
+          donation_type: 'offering',
+          harambee_id: harambee.id,
+        }),
+      });
+      const data = await res.json();
+      if (!data.status) throw new Error(data.message || 'Failed to initialize payment.');
+
+      const { Browser } = await import('@capacitor/browser');
+      const { App } = await import('@capacitor/app');
+
+      const handler = await App.addListener('appUrlOpen', async (event) => {
+        if (event.url.startsWith('mutsdaapp://payment/callback')) {
+          const url = new URL(event.url);
+          const ref = url.searchParams.get('reference');
+          await Browser.close();
+          handler.remove();
+          if (ref) verifyLiveContribution(ref);
+        }
+      });
+
+      await Browser.open({ url: data.data.authorization_url });
+    } catch (err) {
+      console.error('[LiveChallenge] payment error:', err);
+      toast.error(err.message || 'Payment failed.');
+    }
+  };
+
+  const verifyLiveContribution = async (reference) => {
+    setSubmitting(true);
+    try {
+      await fetch(`${API_BASE}/api/harambees/${harambee.id}/contribute`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reference, amount: parseFloat(form.amount), donor_name: form.donor_name, donor_email: form.donor_email }),
+      });
+      toast.success("Contribution received! God bless you!");
+      setShowContribute(false);
+    } catch (err) { toast.error(err.message || "Recording failed."); }
+    finally { setSubmitting(false); }
+  };
+
+  /* Legacy Paystack popup flow (web) */
+  const [ref, setRef] = useState(`lhc-${Date.now().toString(36)}`);
+
+  const paystackConfig = useMemo(() => {
     const amountInKobo = Math.round(parseFloat(form.amount || "0") * 100);
     return {
       reference: ref,
@@ -155,26 +217,25 @@ export default function LiveChallengeModal({ harambee, onClose }) {
     };
   }, [form.amount, form.donor_email, form.donor_name, ref, harambee.id]);
 
-  const initializePayment = usePaystackPayment(paystackConfig);
-
-  const handleContribute = (e) => {
-    e.preventDefault();
-    if (!form.amount || parseFloat(form.amount) <= 0) { toast.error("Enter a valid amount"); return; }
-    initializePayment({
-      onSuccess: async (response) => {
-        setSubmitting(true);
-        try {
-          await fetch(`${API_BASE}/api/harambees/${harambee.id}/contribute`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ reference: response.reference, amount: parseFloat(form.amount), donor_name: form.donor_name, donor_email: form.donor_email }),
-          });
-          toast.success("Contribution received! God bless you!");
-          setShowContribute(false);
-        } catch (err) { toast.error(err.message || "Recording failed."); }
-        finally { setSubmitting(false); setRef(`lhc-${Date.now().toString(36)}`); }
-      },
-      onClose: () => setShowContribute(false),
+  const handleLegacyContribute = () => {
+    import('react-paystack').then(({ usePaystackPayment }) => {
+      const initializePayment = usePaystackPayment(paystackConfig);
+      initializePayment({
+        onSuccess: async (response) => {
+          setSubmitting(true);
+          try {
+            await fetch(`${API_BASE}/api/harambees/${harambee.id}/contribute`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ reference: response.reference, amount: parseFloat(form.amount), donor_name: form.donor_name, donor_email: form.donor_email }),
+            });
+            toast.success("Contribution received! God bless you!");
+            setShowContribute(false);
+          } catch (err) { toast.error(err.message || "Recording failed."); }
+          finally { setSubmitting(false); setRef(`lhc-${Date.now().toString(36)}`); }
+        },
+        onClose: () => setShowContribute(false),
+      });
     });
   };
 
