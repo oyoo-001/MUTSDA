@@ -1,5 +1,19 @@
 {
-  "appId": "com.mutsda.app",
+  "appId": "com.mutsda.com",
   "appName": "MUTSDA",
-  "webDir": "dist"
+  "webDir": "dist",
+  "server": {
+    "androidScheme": "https",
+    "allowNavigation": [
+      "mutsda.onrender.com",
+      "*.paystack.com",
+      "*.paystack.co",
+      "checkout.paystack.com"
+    ]
+  },
+  "plugins": {
+    "CapacitorHttp": {
+      "enabled": true
+    }
+  }
 }

@@ -41,6 +41,7 @@ webPush.setVapidDetails(
 );
 
 const app = express();
+app.set('trust proxy', 1); // Render runs behind a proxy; required by express-rate-limit
 const server = http.createServer(app);
 
 const corsOptions = {
@@ -50,6 +51,7 @@ const corsOptions = {
       'http://localhost:5173',
       'http://localhost:5000',
       'http://localhost',
+      'https://localhost',
       'capacitor://localhost',
       'https://mutsda.onrender.com',
       'https://philologic-debi-unsophisticatedly.ngrok-free.dev'

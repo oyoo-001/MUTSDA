@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "460701966355",
+    "project_id": "mutsda-c3a0b",
+    "storage_bucket": "mutsda-c3a0b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:460701966355:android:538bfc0acd1a6f2a451fe6",
+        "android_client_info": {
+          "package_name": "com.mutsda.com"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAa083U8hYwhoIArvaNmutUx6sdprjyxcM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

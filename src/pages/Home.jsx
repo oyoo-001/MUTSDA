@@ -1,8 +1,7 @@
 import React, { useEffect, useState } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
-import { apiClient, SOCKET_URL } from "@/api/base44Client";
-import { io } from "socket.io-client";
+import { apiClient } from "@/api/base44Client";
 import { format } from "date-fns";
 import HeroSection from "@/components/home/HeroSection";
 import QuickInfoCards from "@/components/home/QuickInfoCards";
@@ -98,35 +97,16 @@ export default function Home() {
       navigate(`/harambee?harambee=${harambeeId}`, { replace: true });
     }
   }, [harambeeId, navigate]);
-  // 4. Live Stream Status
+  // 4. Live Stream Status (synced via centralized useRealtimeSync hook)
+  const { data: liveStreams = [] } = useQuery({
+    queryKey: ['live-streams'],
+    initialData: [],
+    enabled: false,
+  });
+
   useEffect(() => {
-    const signalingSocket = io(SOCKET_URL);
-
-    signalingSocket.on('live_streams_update', (activeStreams) => {
-      setIsLive(activeStreams.length > 0);
-    });
-    
-    // Refresh specific home sections when data changes remotely
-    signalingSocket.on('events_updated', () => {
-      queryClient.invalidateQueries({ queryKey: ["home-events"] });
-    });
-    
-    signalingSocket.on('sermons_updated', () => {
-      queryClient.invalidateQueries({ queryKey: ["home-sermons"] });
-    });
-    
-    signalingSocket.on('announcements_updated', () => {
-      queryClient.invalidateQueries({ queryKey: ["home-announcements"] });
-    });
-
-    signalingSocket.on('harambees_updated', () => {
-      queryClient.invalidateQueries({ queryKey: ["home-harambees"] });
-    });
-
-    return () => {
-      signalingSocket.disconnect();
-    };
-  }, [queryClient]);
+    setIsLive(liveStreams.length > 0);
+  }, [liveStreams]);
 
 const handleCopyLink = (id) => {
     const url = `${window.location.origin}${window.location.pathname}?announcement=${id}`;

@@ -1,6 +1,7 @@
 import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
+import { useRealtimeSync } from '@/lib/useRealtimeSync'
 import { pagesConfig } from './pages.config'
 import { BrowserRouter as Router, Route, Routes, useNavigate } from 'react-router-dom';
 import PageNotFound from './lib/PageNotFound';
@@ -39,9 +40,13 @@ const SplashScreen = () => (
 );
 
 const AuthenticatedApp = () => {
- 
+  
   const { isLoading, user } = useAuth();// Assuming useAuth provides the logged-in user
   const socketRef = useRef(null);
+
+  // Single centralized real-time sync for all data caches
+  useRealtimeSync();
+
   useEffect(() => {
     // Initialize socket at the App level
     socketRef.current = io(SOCKET_URL, {
