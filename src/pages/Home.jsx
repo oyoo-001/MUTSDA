@@ -25,7 +25,6 @@ const getYouTubeId = (url) => {
 };
 
 export default function Home() {
-  const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const [viewingAnnouncement, setViewingAnnouncement] = useState(null);
