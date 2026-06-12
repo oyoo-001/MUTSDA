@@ -85,7 +85,7 @@ export default function AdminOverview({ members = [], sermons = [], events = [],
             <CardTitle className="text-lg font-semibold text-[#1a2744]">Giving Trends (Last 6 Months)</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] w-100%">
+            <div className="h-[300px] w-full min-w-0">
               <ResponsiveContainer width="100%" height="100%">
                 <BarChart data={totals.monthlyData}>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f0f0f0" />
@@ -109,7 +109,7 @@ export default function AdminOverview({ members = [], sermons = [], events = [],
             <CardTitle className="text-lg font-semibold text-[#1a2744]">Donation Distribution</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="h-[300px] w-100%">
+            <div className="h-[300px] w-full min-w-0">
               {totals.pieData.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%">
                   <PieChart>

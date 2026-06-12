@@ -99,6 +99,7 @@ export default function Home() {
   // 4. Live Stream Status (synced via centralized useRealtimeSync hook)
   const { data: liveStreams = [] } = useQuery({
     queryKey: ['live-streams'],
+    queryFn: () => [],
     initialData: [],
     enabled: false,
   });

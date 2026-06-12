@@ -77,10 +77,23 @@ const corsOptions = {
 
 app.use(cors(corsOptions));
 app.use(helmet({
-  contentSecurityPolicy: false, // Disable CSP for now to prevent breaking external scripts/styles unless fully configured
-  crossOriginEmbedderPolicy: false, // This disables the strict check
+  contentSecurityPolicy: {
+    directives: {
+      defaultSrc: ["'self'"],
+      styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+      styleSrcElem: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.googletagmanager.com"],
+      scriptSrcElem: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.googletagmanager.com"],
+      frameSrc: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com"],
+      frameSrcElem: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com"],
+      imgSrc: ["'self'", "data:", "blob:", "https://res.cloudinary.com", "https://accounts.google.com", "https://lh3.googleusercontent.com", "https://mutsda.onrender.com"],
+      connectSrc: ["'self'", "https://mutsda.onrender.com", "https://accounts.google.com", "wss://mutsda.onrender.com"],
+      fontSrc: ["'self'", "https://fonts.gstatic.com", "https://fonts.googleapis.com"],
+      manifestSrc: ["'self'"],
+    },
+  },
+  crossOriginEmbedderPolicy: false,
   crossOriginResourcePolicy: { policy: "cross-origin" }
-
 }));
 app.use(hpp());
 
