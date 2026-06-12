@@ -2009,6 +2009,7 @@ donationRouter.post('/initialize', async (req, res) => {
     }, {
       headers: { Authorization: `Bearer ${process.env.PAYSTACK_SECRET_KEY}` },
     });
+    // Paystack returns { status: true, data: { authorization_url, access_code, reference } }
     res.json(response.data);
   } catch (err) {
     console.error('Paystack initialize error:', err.response?.data || err.message);

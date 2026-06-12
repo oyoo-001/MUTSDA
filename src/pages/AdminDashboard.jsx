@@ -30,6 +30,7 @@ export default function AdminDashboard() {
   const [activeTab, setActiveTab] = useState(tabParam || "overview");
   const [collapsed, setCollapsed] = useState(false);
   const [user, setUser] = useState(null);
+  const [loadError, setLoadError] = useState(null);
   const [supportQueueCount, setSupportQueueCount] = useState(0);
   const [tickerOpen, setTickerOpen] = useState(false);
   const [tickerMsg, setTickerMsg] = useState("");
@@ -41,14 +42,19 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const load = async () => {
-      const isAuth = await apiClient.auth.isAuthenticated();
-      if (!isAuth) { apiClient.auth.redirectToLogin(); return; }
-      const u = await apiClient.auth.me();
-      if (u.role !== "admin") {
-        window.location.href = "/";
-        return;
+      try {
+        const isAuth = await apiClient.auth.isAuthenticated();
+        if (!isAuth) { apiClient.auth.redirectToLogin(); return; }
+        const u = await apiClient.auth.me();
+        if (u.role !== "admin") {
+          window.location.href = "/";
+          return;
+        }
+        setUser(u);
+      } catch (err) {
+        console.error('[AdminDashboard] Auth load failed:', err);
+        setLoadError(err.message || 'Authentication failed');
       }
-      setUser(u);
     };
     load();
   }, []);
@@ -90,68 +96,75 @@ export default function AdminDashboard() {
     }
   }, [tabParam]);
 
-  const { data: members } = useQuery({
+  const logAndThrow = (err, label) => {
+    console.error(`[AdminDashboard] ${label} fetch failed:`, err);
+    throw err;
+  };
+
+  const { data: members, error: membersErr } = useQuery({
     queryKey: ["admin-members"],
-    queryFn: () => apiClient.entities.User.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.User.filter({}, "-created_date").catch(e => logAndThrow(e, 'members')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: sermons } = useQuery({
+  const { data: sermons, error: sermonsErr } = useQuery({
     queryKey: ["admin-sermons"],
-    queryFn: () => apiClient.entities.Sermon.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.Sermon.filter({}, "-created_date").catch(e => logAndThrow(e, 'sermons')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: events } = useQuery({
+  const { data: events, error: eventsErr } = useQuery({
     queryKey: ["admin-events"],
-    queryFn: () => apiClient.entities.Event.filter({}, "-event_date"),
+    queryFn: () => apiClient.entities.Event.filter({}, "-event_date").catch(e => logAndThrow(e, 'events')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: donations } = useQuery({
+  const { data: donations, error: donationsErr } = useQuery({
     queryKey: ["admin-donations"],
-    queryFn: () => apiClient.entities.Donation.filter({ all: 'true' }, "-created_date"),
+    queryFn: () => apiClient.entities.Donation.filter({ all: 'true' }, "-created_date").catch(e => logAndThrow(e, 'donations')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: harambees } = useQuery({
+  const { data: harambees, error: harambeesErr } = useQuery({
     queryKey: ["admin-harambees"],
-    queryFn: () => apiClient.entities.Harambee.list(),
+    queryFn: () => apiClient.entities.Harambee.list().catch(e => logAndThrow(e, 'harambees')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: announcements } = useQuery({
+  const { data: announcements, error: announcementsErr } = useQuery({
     queryKey: ["admin-announcements"],
-    queryFn: () => apiClient.entities.Announcement.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.Announcement.filter({}, "-created_date").catch(e => logAndThrow(e, 'announcements')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: media } = useQuery({
+  const { data: media, error: mediaErr } = useQuery({
     queryKey: ["admin-media"],
-    queryFn: () => apiClient.entities.MediaItem.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.MediaItem.filter({}, "-created_date").catch(e => logAndThrow(e, 'media')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: messages } = useQuery({
+  const { data: messages, error: messagesErr } = useQuery({
     queryKey: ["admin-messages"],
-    queryFn: () => apiClient.entities.ContactMessage.filter({}, "-created_date"),
+    queryFn: () => apiClient.entities.ContactMessage.filter({}, "-created_date").catch(e => logAndThrow(e, 'messages')),
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: chatGroups } = useQuery({
+  const { data: chatGroups, error: chatGroupsErr } = useQuery({
     queryKey: ["admin-chat-groups"],
-    queryFn: () => apiClient.entities.ChatGroup.list(),
+    queryFn: () => apiClient.entities.ChatGroup.list().catch(e => logAndThrow(e, 'chatGroups')),
     initialData: [],
     enabled: !!user,
   });
+
+  const anyQueryError = membersErr || sermonsErr || eventsErr || donationsErr || harambeesErr || announcementsErr || mediaErr || messagesErr || chatGroupsErr;
 
   const handleUpdateTicker = () => {
     if (socketRef.current) {
@@ -160,6 +173,19 @@ export default function AdminDashboard() {
       setTickerOpen(false);
     }
   };
+
+  if (loadError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen p-6">
+        <div className="max-w-md p-8 bg-red-50 border border-red-200 rounded-3xl text-center">
+          <h2 className="text-xl font-bold text-red-700 mb-2">Authentication Error</h2>
+          <p className="text-red-600 mb-4">{loadError}</p>
+          <p className="text-sm text-gray-500">Check the browser console (F12) for details. Your token may be expired — try logging out and back in.</p>
+          <button onClick={() => { localStorage.removeItem('token'); window.location.href = '/auth'; }} className="mt-4 px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700">Go to Login</button>
+        </div>
+      </div>
+    );
+  }
 
   if (!user) return <div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-gray-400">Loading...</div></div>;
 
@@ -186,6 +212,11 @@ export default function AdminDashboard() {
     <div className="flex h-screen overflow-hidden">
       <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} collapsed={collapsed} setCollapsed={setCollapsed} supportQueueCount={supportQueueCount} />
       <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        {anyQueryError && (
+          <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
+            <strong>Some data failed to load.</strong> Check the browser console (F12 → Console tab) for error details. The server may be waking up from sleep (Render free tier) — refresh the page in a moment.
+          </div>
+        )}
         <div className="flex justify-end mb-4">
           <Button onClick={() => setTickerOpen(true)} variant="outline" className="gap-2 border-[#c8a951] text-[#c8a951] hover:bg-[#c8a951] hover:text-[#1a2744]">
             <Megaphone className="w-4 h-4" /> Update News Ticker

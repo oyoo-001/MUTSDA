@@ -167,7 +167,16 @@ export default function Giving() {
   }, [form.amount, form.donor_email, form.donor_name, form.donation_type, ref]);
 
   const handleLegacyPayment = () => {
-    import('react-paystack').then(({ usePaystackPayment }) => {
+    import('react-paystack').then((module) => {
+      // Handle both ESM and CJS imports
+      const usePaystackPayment = module.usePaystackPayment || module.default?.usePaystackPayment;
+
+      if (!usePaystackPayment) {
+        setWaitingForPayment(false);
+        toast.error("Payment module failed to load.");
+        return;
+      }
+
       const initializePayment = usePaystackPayment(paystackConfig);
       initializePayment({
         onSuccess: async (response) => {
