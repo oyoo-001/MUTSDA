@@ -81,15 +81,13 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-      styleSrcElem: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.googletagmanager.com"],
-      scriptSrcElem: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://www.googletagmanager.com"],
-      frameSrc: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com"],
-      frameSrcElem: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://meet.jit.si", "https://www.googletagmanager.com"],
+      frameSrc: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com", "https://meet.jit.si"],
       imgSrc: ["'self'", "data:", "blob:", "https://res.cloudinary.com", "https://accounts.google.com", "https://lh3.googleusercontent.com", "https://mutsda.onrender.com"],
-      connectSrc: ["'self'", "https://mutsda.onrender.com", "https://accounts.google.com", "wss://mutsda.onrender.com"],
+      connectSrc: ["'self'", "https://mutsda.onrender.com", "https://res.cloudinary.com", "https://accounts.google.com", "wss://mutsda.onrender.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://fonts.googleapis.com"],
       manifestSrc: ["'self'"],
+      workerSrc: ["'self'", "https://res.cloudinary.com"],
     },
   },
   crossOriginEmbedderPolicy: false,
@@ -453,6 +451,20 @@ const admin = (req, res, next) => {
   } else {
     res.status(401).json({ message: 'Not authorized as an admin' });
   }
+};
+
+// Helper: silently decode the JWT from the Authorization header without failing.
+// Used on public GET routes where admins should see all data but guests see only published.
+const decodeAdminFromRequest = async (req) => {
+  try {
+    if (req.headers.authorization?.startsWith('Bearer')) {
+      const token = req.headers.authorization.split(' ')[1];
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      const user = await User.findByPk(decoded.id, { attributes: ['id', 'role'] });
+      if (user && (user.role === 'admin' || user.role === 'pastor')) return user;
+    }
+  } catch (e) { /* token absent or invalid — treat as guest */ }
+  return null;
 };
 
 // -----------------------------------------------------------------------------
@@ -920,19 +932,25 @@ const authController = {
 
 const sermonController = {
   ...createController(Sermon, 'sermons'),
-  getAll: async (req, res) => { // Override to only show published
+  getAll: async (req, res) => { // Override to only show published (admins see all)
     try {
       let userId = null;
+      let isAdmin = false;
       if (req.headers.authorization?.startsWith('Bearer')) {
         try {
           const token = req.headers.authorization.split(' ')[1];
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
           userId = decoded.id;
+          const reqUser = await User.findByPk(decoded.id, { attributes: ['role'] });
+          if (reqUser && (reqUser.role === 'admin' || reqUser.role === 'pastor')) isAdmin = true;
         } catch (e) { }
       }
 
+      // Admins and pastors see ALL sermons (including unpublished drafts)
+      const whereClause = isAdmin ? {} : { published: true };
+
       const sermons = await Sermon.findAll({
-        where: { published: true },
+        where: whereClause,
         attributes: {
           include: [
             [sequelize.literal('(SELECT COUNT(*) FROM SermonViews WHERE SermonViews.sermon_id = Sermon.id)'), 'views_count'],
@@ -1032,10 +1050,12 @@ const sermonController = {
 
 const eventController = {
   ...createController(Event, 'events'),
-  getAll: async (req, res) => { // Override to only show published
+  getAll: async (req, res) => { // Override to only show published (admins see all)
     try {
+      const adminUser = await decodeAdminFromRequest(req);
+      const whereClause = adminUser ? {} : { published: true };
       const events = await Event.findAll({
-        where: { published: true },
+        where: whereClause,
         order: [['event_date', 'ASC']]
       });
       res.json(events);
@@ -1067,10 +1087,12 @@ const eventController = {
 
 const announcementController = {
   ...createController(Announcement, 'announcements'),
-  getAll: async (req, res) => { // Override to only show published & pinned first
+  getAll: async (req, res) => { // Override to only show published & pinned first (admins see all)
     try {
+      const adminUser = await decodeAdminFromRequest(req);
+      const whereClause = adminUser ? {} : { published: true };
       const announcements = await Announcement.findAll({
-        where: { published: true },
+        where: whereClause,
         order: [['pinned', 'DESC'], ['created_date', 'DESC']]
       });
       res.json(announcements);
@@ -1434,8 +1456,10 @@ const harambeeController = {
   ...createController(Harambee, 'harambees'),
   getAll: async (req, res) => {
     try {
+      const adminUser = await decodeAdminFromRequest(req);
+      const whereClause = adminUser ? {} : { published: true };
       const harambees = await Harambee.findAll({
-        where: { published: true },
+        where: whereClause,
         order: [['created_date', 'DESC']]
       });
       const parsed = harambees.map(h => {

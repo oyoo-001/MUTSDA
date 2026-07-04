@@ -46,7 +46,7 @@ export default function AdminDashboard() {
         const isAuth = await apiClient.auth.isAuthenticated();
         if (!isAuth) { apiClient.auth.redirectToLogin(); return; }
         const u = await apiClient.auth.me();
-        if (u.role !== "admin") {
+        if (u.role !== "admin" && u.role !== "pastor") {
           window.location.href = "/";
           return;
         }
@@ -60,7 +60,7 @@ export default function AdminDashboard() {
   }, []);
 
   useEffect(() => {
-    if (user && user.role === 'admin') {
+    if (user && (user.role === 'admin' || user.role === 'pastor')) {
       socketRef.current = io(SOCKET_URL, {
         auth: { token: localStorage.getItem('token') }
       });
