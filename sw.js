@@ -59,7 +59,15 @@ self.addEventListener('fetch', (event) => {
         if (cached) return cached;
         // For navigation requests (page loads), return the cached root
         if (request.mode === 'navigate') {
-          return caches.match('/');
+          const root = await caches.match('/');
+          if (root) return root;
+          // If root isn't cached either, retry the network once after a delay
+          await new Promise(r => setTimeout(r, 2000));
+          try {
+            const retry = await fetch(request);
+            if (retry.ok) return retry;
+          } catch {}
+          return new Response('Still loading... please refresh.', { status: 503, statusText: 'Server Starting' });
         }
         // Return a transparent placeholder for failed images/fonts/etc.
         return new Response('', { status: 503, statusText: 'Service Unavailable' });
