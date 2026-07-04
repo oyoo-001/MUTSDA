@@ -23,6 +23,9 @@ import rateLimit from 'express-rate-limit';
 import hpp from 'hpp';
 import { createRequire } from 'module';
 
+process.on('unhandledRejection', (reason) => console.error('UNHANDLED REJECTION:', reason));
+process.on('uncaughtException', (err) => console.error('UNCAUGHT EXCEPTION:', err));
+
 const require = createRequire(import.meta.url);
 const pdfParse = require('pdf-parse');
 const mammoth = require('mammoth');
@@ -74,6 +77,16 @@ const corsOptions = {
   credentials: true
 };
 
+
+// Simple request logger
+app.use((req, res, next) => {
+  const start = Date.now();
+  res.on('finish', () => {
+    const duration = Date.now() - start;
+    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+  });
+  next();
+});
 
 app.use(cors(corsOptions));
 app.use(helmet({
