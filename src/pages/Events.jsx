@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format, isPast, differenceInDays, differenceInHours, differenceInMinutes, differenceInSeconds } from "date-fns";
@@ -161,8 +162,9 @@ export default function Events() {
   const { data: eventsData, isLoading, isError, refetch } = useQuery({
     queryKey: ["events"],
     queryFn: async () => {
-      const response = await apiClient.entities.Event.filter({ published: true }, "-event_date");
-      return Array.isArray(response) ? response : (response?.data || []);
+      const response = await apiClient.entities.Event.list();
+      console.log('[Events] API response:', response);
+      return normalizeApiListResponse(response);
     },
     initialData: [],
   });
@@ -186,8 +188,11 @@ export default function Events() {
     queryKey: ["my-rsvps", user?.email],
     queryFn: async () => {
       if (!user?.email) return [];
-      const response = await apiClient.entities.RSVP.filter({ member_email: user.email });
-      return Array.isArray(response) ? response : (response?.data || []);
+      const response = await apiClient.entities.RSVP.list();
+      console.log('[Events] RSVPs response:', response);
+      // Filter client-side since backend may not support filtering
+      const normalized = normalizeApiListResponse(response);
+      return normalized.filter(rsvp => rsvp.member_email === user.email);
     },
     enabled: !!user?.email,
     initialData: [],

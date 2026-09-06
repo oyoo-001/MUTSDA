@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import { cn } from "@/lib/utils";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { format } from "date-fns";
@@ -135,11 +136,12 @@ export default function Sermons() {
     };
   }, [queryClient]);
 
-  const { data: sermons, isLoading, isError, refetch } = useQuery({
+  const { data: sermons, isLoading, isError, refetch, error } = useQuery({
     queryKey: ["sermons"],
     queryFn: async () => {
-      const response = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
-      return Array.isArray(response) ? response : (response?.items || response?.data || []);
+      const response = await apiClient.entities.Sermon.list();
+      console.log('[Sermons] API response:', response);
+      return normalizeApiListResponse(response);
     },
     initialData: [],
   });
@@ -449,6 +451,12 @@ export default function Sermons() {
       {/* Main Content */}
       <section className="py-12 px-4 lg:px-8">
         <div className="max-w-7xl mx-auto">
+          {isError && (
+            <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-xl text-red-700">
+              <strong>Error loading sermons:</strong> {error?.message || 'Unknown error'}
+              <button onClick={() => refetch()} className="ml-4 underline">Retry</button>
+            </div>
+          )}
           {isLoading ? (
              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                {[...Array(6)].map((_, i) => (
@@ -456,6 +464,23 @@ export default function Sermons() {
                ))}
              </div>
           ) : (
+            <>
+              {filtered.length === 0 ? (
+                <div className="text-center py-20">
+                  <BookOpen className="w-16 h-16 text-gray-300 mx-auto mb-4" />
+                  <h3 className="text-xl font-semibold text-gray-500">No Sermons Found</h3>
+                  <p className="text-gray-400 mt-1">
+                    {search || category !== "all" 
+                      ? "Try adjusting your filters" 
+                      : "Check back later for sermon content"}
+                  </p>
+                  {sermons.length > 0 && (
+                    <p className="text-sm text-gray-400 mt-2">
+                      Total sermons in database: {sermons.length}
+                    </p>
+                  )}
+                </div>
+              ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {filtered.map((sermon, i) => {
                 const ytId = getYouTubeId(sermon.video_link);
@@ -548,6 +573,8 @@ export default function Sermons() {
                 );
               })}
             </div>
+              )}
+            </>
           )}
         </div>
       </section>

@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo, forwardRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -518,19 +519,9 @@ export default function Chat() {
           setUser(userData);
           apiClient.entities.ChatGroup.getMyGroups().then(setMyGroups).catch(console.error);
           try {
-            let membersData = [];
-            if (apiClient.entities.User?.getAll) {
-              const result = await apiClient.entities.User.getAll();
-              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
-            }
-            if (membersData.length === 0 && apiClient.entities.User?.filter) {
-              const result = await apiClient.entities.User.filter({});
-              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
-            }
-            if (membersData.length === 0) {
-              const result = await apiClient.get('/api/users') || await apiClient.get('/users');
-              membersData = Array.isArray(result) ? result : (result?.data || result?.items || []);
-            }
+            const response = await apiClient.entities.User.list();
+            console.log('[Chat] Users response:', response);
+            const membersData = normalizeApiListResponse(response);
             setAllMembers(Array.isArray(membersData) ? membersData : []);
           } catch (err) {
             console.error("Failed to load members:", err);
@@ -760,9 +751,12 @@ export default function Chat() {
         } else {
           // Use the standard ChatMessage entity for general/groups. 
           // The generic controller returns newest first (DESC), so we reverse it.
-          data = await apiClient.entities.ChatMessage.filter({ 
-            channel: formattedChannelId 
-          });
+          data = await apiClient.entities.ChatMessage.list();
+          console.log('[Chat] ChatMessage response:', data);
+          data = normalizeApiListResponse(data);
+          
+          // Filter for this channel
+          data = data.filter(m => m.channel === formattedChannelId);
         }
 
         // Defensive check: Ensure we always set an array to avoid the "prev is not iterable" crash

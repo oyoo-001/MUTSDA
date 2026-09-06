@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { apiClient } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { format } from "date-fns";
@@ -54,14 +55,24 @@ export default function MemberProfile() {
 
   const { data: donations } = useQuery({
     queryKey: ["my-donations", user?.email],
-    queryFn: () => apiClient.entities.Donation.filter({ donor_email: user.email }, "-created_date", 20),
+    queryFn: async () => {
+      const response = await apiClient.entities.Donation.list();
+      console.log('[MemberProfile] Donations response:', response);
+      const normalized = normalizeApiListResponse(response);
+      return normalized.filter(d => d.donor_email === user.email);
+    },
     enabled: !!user?.email,
     initialData: [],
   });
 
   const { data: rsvps } = useQuery({
     queryKey: ["my-rsvps-profile", user?.email],
-    queryFn: () => apiClient.entities.RSVP.filter({ member_email: user.email }, "-created_date"),
+    queryFn: async () => {
+      const response = await apiClient.entities.RSVP.list();
+      console.log('[MemberProfile] RSVPs response:', response);
+      const normalized = normalizeApiListResponse(response);
+      return normalized.filter(r => r.member_email === user.email);
+    },
     enabled: !!user?.email,
     initialData: [],
   });

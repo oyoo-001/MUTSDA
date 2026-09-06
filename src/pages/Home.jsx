@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { apiClient } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { format } from "date-fns";
 import HeroSection from "@/components/home/HeroSection";
 import QuickInfoCards from "@/components/home/QuickInfoCards";
@@ -34,8 +35,10 @@ export default function Home() {
   const { data: events = [] } = useQuery({
     queryKey: ["home-events"],
     queryFn: async () => {
-      const data = await apiClient.entities.Event.filter({ published: true }, "-event_date");
-      return Array.isArray(data) ? data.slice(0, 3) : [];
+      const response = await apiClient.entities.Event.list();
+      console.log('[Home] Events response:', response);
+      const data = normalizeApiListResponse(response);
+      return data.slice(0, 3);
     },
     initialData: [],
   });
@@ -44,8 +47,10 @@ export default function Home() {
   const { data: sermons = [] } = useQuery({
     queryKey: ["home-sermons"],
     queryFn: async () => {
-      const data = await apiClient.entities.Sermon.filter({ published: true }, "-sermon_date");
-      const sliced = Array.isArray(data) ? data.slice(0, 3) : [];
+      const response = await apiClient.entities.Sermon.list();
+      console.log('[Home] Sermons response:', response);
+      const data = normalizeApiListResponse(response);
+      const sliced = data.slice(0, 3);
       
       const getGoogleId = (url) => url?.match(/drive\.google\.com\/file\/d\/([a-zA-Z0-9_-]+)/)?.[1];
 
@@ -63,8 +68,10 @@ export default function Home() {
   const { data: activeHarambees = [] } = useQuery({
     queryKey: ["home-harambees"],
     queryFn: async () => {
-      const data = await apiClient.entities.Harambee.list();
-      const active = (Array.isArray(data) ? data : []).filter(h => h.status === "active");
+      const response = await apiClient.entities.Harambee.list();
+      console.log('[Home] Harambees response:', response);
+      const data = normalizeApiListResponse(response);
+      const active = data.filter(h => h.status === "active");
       return active.slice(0, 3);
     },
     initialData: [],
@@ -74,8 +81,10 @@ export default function Home() {
   const { data: announcements = [] } = useQuery({
     queryKey: ["home-announcements"],
     queryFn: async () => {
-      const data = await apiClient.entities.Announcement.filter({ published: true }, "-created_date");
-      return Array.isArray(data) ? data.slice(0, 4) : [];
+      const response = await apiClient.entities.Announcement.list();
+      console.log('[Home] Announcements response:', response);
+      const data = normalizeApiListResponse(response);
+      return data.slice(0, 4);
     },
     initialData: [],
   });

@@ -71,6 +71,8 @@ const corsOptions = {
     ) {
       callback(null, true);
     } else {
+      console.error(`[CORS] Blocked request from origin: ${origin}`);
+      console.error(`[CORS] Allowed origins:`, allowedOrigins);
       callback(new Error('Not allowed by CORS'));
     }
   },
@@ -83,8 +85,40 @@ app.use((req, res, next) => {
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
-    console.log(`${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
+    const isApiRoute = req.originalUrl.startsWith('/api/');
+    const logPrefix = isApiRoute ? '[API]' : '[STATIC]';
+    console.log(`${logPrefix} ${req.method} ${req.originalUrl} ${res.statusCode} ${duration}ms`);
   });
+  next();
+});
+
+// API Route debugging - log what's actually being requested
+app.use('/api', (req, res, next) => {
+  console.log('[API REQUEST]', {
+    method: req.method,
+    path: req.path,
+    url: req.url,
+    originalUrl: req.originalUrl,
+    baseUrl: req.baseUrl,
+    headers: {
+      'content-type': req.headers['content-type'],
+      'accept': req.headers['accept']
+    }
+  });
+  
+  // Intercept res.json to ensure it's being called
+  const originalJson = res.json.bind(res);
+  res.json = function(data) {
+    console.log('[API RESPONSE]', {
+      path: req.originalUrl,
+      contentType: 'application/json',
+      dataType: typeof data,
+      hasSuccess: data && typeof data === 'object' ? 'success' in data : false
+    });
+    res.setHeader('Content-Type', 'application/json');
+    return originalJson(data);
+  };
+  
   next();
 });
 
@@ -94,8 +128,8 @@ app.use(helmet({
     directives: {
       defaultSrc: ["'self'"],
       styleSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://meet.jit.si", "https://www.googletagmanager.com"],
-      frameSrc: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com", "https://meet.jit.si"],
+      scriptSrc: ["'self'", "'unsafe-inline'", "https://accounts.google.com", "https://meet.jit.si", "https://8x8.vc", "https://www.googletagmanager.com"],
+      frameSrc: ["'self'", "https://accounts.google.com", "https://checkout.paystack.com", "https://meet.jit.si", "https://8x8.vc"],
       imgSrc: ["'self'", "data:", "blob:", "https://res.cloudinary.com", "https://accounts.google.com", "https://lh3.googleusercontent.com", "https://mutsda.onrender.com"],
       connectSrc: ["'self'", "https://mutsda.onrender.com", "https://res.cloudinary.com", "https://accounts.google.com", "wss://mutsda.onrender.com"],
       fontSrc: ["'self'", "https://fonts.gstatic.com", "https://fonts.googleapis.com"],
@@ -167,7 +201,23 @@ sequelize.authenticate()
       return Promise.resolve();
     }
   })
-  .then(() => console.log('Database operation complete'))
+  .then(async () => {
+    console.log('Database operation complete');
+    
+    // Add indexes for performance (safe to run multiple times)
+    try {
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sermon_views_sermon_id ON SermonViews(sermon_id)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sermon_likes_sermon_id ON SermonLikes(sermon_id)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sermon_comments_sermon_id ON SermonComments(sermon_id)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sermon_likes_user_sermon ON SermonLikes(user_id, sermon_id)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_events_published_date ON Events(published, event_date)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_sermons_published_date ON Sermons(published, sermon_date)');
+      await sequelize.query('CREATE INDEX IF NOT EXISTS idx_announcements_published_date ON Announcements(published, created_date)');
+      console.log('Database indexes verified/created');
+    } catch (err) {
+      console.warn('Index creation warning (may already exist):', err.message);
+    }
+  })
   .catch(err => console.error('MySQL Connection Error:', err));
 
 // -----------------------------------------------------------------------------
@@ -582,20 +632,20 @@ const createController = (model, namespace) => ({
       // used as a filter, enabling data enumeration and unexpected behaviour.
       // Callers that need filtering should override getAll in their own controller.
       const items = await model.findAll({ order: [['created_date', 'DESC']] });
-      res.json(items);
+      res.json({ success: true, data: items, count: items.length });
     } catch (err) {
       console.error(`Error in ${model.name} getAll:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: [] });
     }
   },
   getById: async (req, res) => {
     try {
       const item = await model.findByPk(req.params.id);
-      if (!item) return res.status(404).json({ message: 'Item not found' });
-      res.json(item);
+      if (!item) return res.status(404).json({ success: false, message: 'Item not found', data: null });
+      res.json({ success: true, data: item });
     } catch (err) {
       console.error(`Error in ${model.name} getById:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
   create: async (req, res) => {
@@ -604,10 +654,10 @@ const createController = (model, namespace) => ({
       if (namespace && req.app.get('io')) {
         req.app.get('io').emit(`${namespace}_updated`);
       }
-      res.status(201).json(item);
+      res.status(201).json({ success: true, data: item });
     } catch (err) {
       console.error(`Error in ${model.name} create:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
   update: async (req, res) => {
@@ -618,29 +668,29 @@ const createController = (model, namespace) => ({
       if (req.body.notes_pdf_url === "") req.body.notes_pdf_url = null;
 
       const item = await model.findByPk(req.params.id);
-      if (!item) return res.status(404).json({ message: 'Item not found' });
+      if (!item) return res.status(404).json({ success: false, message: 'Item not found', data: null });
       await item.update(req.body);
       if (namespace && req.app.get('io')) {
         req.app.get('io').emit(`${namespace}_updated`);
       }
-      res.json(item);
+      res.json({ success: true, data: item });
     } catch (err) {
       console.error(`Error in ${model.name} update:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
   delete: async (req, res) => {
     try {
       const item = await model.findByPk(req.params.id);
-      if (!item) return res.status(404).json({ message: 'Item not found' });
+      if (!item) return res.status(404).json({ success: false, message: 'Item not found', data: null });
       await item.destroy();
       if (namespace && req.app.get('io')) {
         req.app.get('io').emit(`${namespace}_updated`);
       }
-      res.json({ message: 'Item removed' });
+      res.json({ success: true, message: 'Item removed', data: null });
     } catch (err) {
       console.error(`Error in ${model.name} delete:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
 });
@@ -975,10 +1025,10 @@ const sermonController = {
         },
         order: [['sermon_date', 'DESC']]
       });
-      res.json(sermons);
+      res.json({ success: true, data: sermons, count: sermons.length });
     } catch (err) {
       console.error('Error in Sermon getAll:', err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: [] });
     }
   },
   recordView: async (req, res) => {
@@ -1071,10 +1121,10 @@ const eventController = {
         where: whereClause,
         order: [['event_date', 'ASC']]
       });
-      res.json(events);
+      res.json({ success: true, data: events, count: events.length });
     } catch (err) {
       console.error('Error in Event getAll:', err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: [] });
     }
   },
   // Override create to fire push notification to all subscribers
@@ -1090,10 +1140,10 @@ const eventController = {
           url: '/events'
         }).catch(err => console.error('[Push] Event broadcast failed:', err));
       }
-      res.status(201).json(item);
+      res.status(201).json({ success: true, data: item });
     } catch (err) {
       console.error('Error in Event create:', err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
 };
@@ -1108,10 +1158,10 @@ const announcementController = {
         where: whereClause,
         order: [['pinned', 'DESC'], ['created_date', 'DESC']]
       });
-      res.json(announcements);
+      res.json({ success: true, data: announcements, count: announcements.length });
     } catch (err) {
       console.error('Error in Announcement getAll:', err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: [] });
     }
   },
   // Override create to fire push notification to all subscribers
@@ -1127,10 +1177,10 @@ const announcementController = {
           url: `/?announcement=${item.id}`
         }).catch(err => console.error('[Push] Announcement broadcast failed:', err));
       }
-      res.status(201).json(item);
+      res.status(201).json({ success: true, data: item });
     } catch (err) {
       console.error('Error in Announcement create:', err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: null });
     }
   },
 };
@@ -1427,10 +1477,10 @@ const userController = {
         attributes: { exclude: ['password', 'resetPasswordToken', 'resetPasswordExpires'] },
         order: [['full_name', 'ASC']]
       });
-      res.json(users);
+      res.json({ success: true, data: users, count: users.length });
     } catch (err) {
       console.error(`Error in User getAll:`, err);
-      res.status(500).json({ message: 'Server Error' });
+      res.status(500).json({ success: false, message: 'Server Error', data: [] });
     }
   },
   // Override update to prevent password/token fields from being set via this route
@@ -2618,6 +2668,17 @@ jaasRouter.post('/token', protect, async (req, res) => {
 
 app.use('/api/jaas', jaasRouter);
 
+// Test endpoint to verify API is working
+app.get('/api/test', (req, res) => {
+  console.log('[TEST] API test endpoint hit');
+  res.json({ 
+    success: true, 
+    message: 'API is working correctly',
+    timestamp: new Date().toISOString(),
+    data: { test: true }
+  });
+});
+
 // Legacy DM history route — prefer /api/dm/:channelId which has stricter validation.
 // Kept for backwards compatibility but now enforces channel membership.
 app.get('/api/direct-messages/:channel', protect, async (req, res) => {
@@ -2638,6 +2699,7 @@ app.get('/api/direct-messages/:channel', protect, async (req, res) => {
     res.status(500).json({ message: "Could not load messages" });
   }
 });
+
 // -----------------------------------------------------------------------------
 // 9. SOCKET.IO for Live Chat
 // -----------------------------------------------------------------------------
@@ -3292,6 +3354,23 @@ app.post('/api/files/extract-text', async (req, res) => {
   }
 });
 
+// -----------------------------------------------------------------------------
+// API 404 Handler - MUST be AFTER ALL API routes, BEFORE static files
+// -----------------------------------------------------------------------------
+// If no API route matched, return JSON error (not HTML)
+app.use('/api/*', (req, res) => {
+  console.error('[API 404]', req.originalUrl);
+  res.status(404).json({
+    success: false,
+    message: `API endpoint not found: ${req.originalUrl}`,
+    data: null
+  });
+});
+
+// -----------------------------------------------------------------------------
+// STATIC FILE SERVING & SPA ROUTING
+// -----------------------------------------------------------------------------
+
 // 1. Serve static files from the 'dist' folder (Vite build output)
 app.use(express.static(path.join(__dirname, 'dist')));
 
@@ -3377,8 +3456,6 @@ app.get('*', async (req, res) => {
     const safeUrl = encodeURI(meta.url); // encode the URL, don't trust raw input
 
     const ogTags = `
-      <title>${safeTitle}</title>
-      <meta name="description" content="${safeDesc}" />
       <meta property="og:title" content="${safeTitle}" />
       <meta property="og:description" content="${safeDesc}" />
       <meta property="og:image" content="${safeImage}" />
@@ -3386,11 +3463,13 @@ app.get('*', async (req, res) => {
       <meta property="og:type" content="website" />
       <meta name="twitter:card" content="summary_large_image" />
       <meta name="twitter:image" content="${safeImage}" />
+      <meta name="twitter:title" content="${safeTitle}" />
+      <meta name="twitter:description" content="${safeDesc}" />
     `;
 
-    // Inject before the closing </head> tag
-    const finalHtml = htmlData.replace('</head>', `${ogTags}</head>`);
-    res.send(finalHtml);
+    // Inject OG tags at the placeholder (not duplicating existing tags)
+    const modifiedHtml = htmlData.replace('<!-- __META_TAGS__ -->', ogTags);
+    res.send(modifiedHtml);
   });
 });
 const PORT = process.env.PORT || 5000;

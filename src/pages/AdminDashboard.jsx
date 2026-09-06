@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient, SOCKET_URL } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { io } from "socket.io-client";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import AdminSidebar from "@/components/admin/AdminSidebar";
@@ -96,70 +97,101 @@ export default function AdminDashboard() {
     }
   }, [tabParam]);
 
-  const logAndThrow = (err, label) => {
-    console.error(`[AdminDashboard] ${label} fetch failed:`, err);
-    throw err;
-  };
-
-  const { data: members, error: membersErr } = useQuery({
+  const { data: members, error: membersErr, isLoading: membersLoading } = useQuery({
     queryKey: ["admin-members"],
-    queryFn: () => apiClient.entities.User.filter({}, "-created_date").catch(e => logAndThrow(e, 'members')),
+    queryFn: async () => {
+      const response = await apiClient.entities.User.list();
+      console.log('[AdminDashboard] Members response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: sermons, error: sermonsErr } = useQuery({
+  const { data: sermons, error: sermonsErr, isLoading: sermonsLoading } = useQuery({
     queryKey: ["admin-sermons"],
-    queryFn: () => apiClient.entities.Sermon.filter({}, "-created_date").catch(e => logAndThrow(e, 'sermons')),
+    queryFn: async () => {
+      const response = await apiClient.entities.Sermon.list();
+      console.log('[AdminDashboard] Sermons response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
-  const { data: events, error: eventsErr } = useQuery({
+  const { data: events, error: eventsErr, isLoading: eventsLoading } = useQuery({
     queryKey: ["admin-events"],
-    queryFn: () => apiClient.entities.Event.filter({}, "-event_date").catch(e => logAndThrow(e, 'events')),
+    queryFn: async () => {
+      const response = await apiClient.entities.Event.list();
+      console.log('[AdminDashboard] Events response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: donations, error: donationsErr } = useQuery({
     queryKey: ["admin-donations"],
-    queryFn: () => apiClient.entities.Donation.filter({ all: 'true' }, "-created_date").catch(e => logAndThrow(e, 'donations')),
+    queryFn: async () => {
+      const response = await apiClient.entities.Donation.list();
+      console.log('[AdminDashboard] Donations response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: harambees, error: harambeesErr } = useQuery({
     queryKey: ["admin-harambees"],
-    queryFn: () => apiClient.entities.Harambee.list().catch(e => logAndThrow(e, 'harambees')),
+    queryFn: async () => {
+      const response = await apiClient.entities.Harambee.list();
+      console.log('[AdminDashboard] Harambees response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: announcements, error: announcementsErr } = useQuery({
     queryKey: ["admin-announcements"],
-    queryFn: () => apiClient.entities.Announcement.filter({}, "-created_date").catch(e => logAndThrow(e, 'announcements')),
+    queryFn: async () => {
+      const response = await apiClient.entities.Announcement.list();
+      console.log('[AdminDashboard] Announcements response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: media, error: mediaErr } = useQuery({
     queryKey: ["admin-media"],
-    queryFn: () => apiClient.entities.MediaItem.filter({}, "-created_date").catch(e => logAndThrow(e, 'media')),
+    queryFn: async () => {
+      const response = await apiClient.entities.MediaItem.list();
+      console.log('[AdminDashboard] Media response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: messages, error: messagesErr } = useQuery({
     queryKey: ["admin-messages"],
-    queryFn: () => apiClient.entities.ContactMessage.filter({}, "-created_date").catch(e => logAndThrow(e, 'messages')),
+    queryFn: async () => {
+      const response = await apiClient.entities.ContactMessage.list();
+      console.log('[AdminDashboard] Messages response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
 
   const { data: chatGroups, error: chatGroupsErr } = useQuery({
     queryKey: ["admin-chat-groups"],
-    queryFn: () => apiClient.entities.ChatGroup.list().catch(e => logAndThrow(e, 'chatGroups')),
+    queryFn: async () => {
+      const response = await apiClient.entities.ChatGroup.list();
+      console.log('[AdminDashboard] ChatGroups response:', response);
+      return normalizeApiListResponse(response);
+    },
     initialData: [],
     enabled: !!user,
   });
@@ -189,6 +221,8 @@ export default function AdminDashboard() {
 
   if (!user) return <div className="flex items-center justify-center min-h-screen"><div className="animate-pulse text-gray-400">Loading...</div></div>;
 
+  const isDataLoading = membersLoading || sermonsLoading || eventsLoading;
+
   const renderContent = () => {
     switch (activeTab) {
       case "overview": return <AdminOverview members={members} sermons={sermons} events={events} donations={donations} harambees={harambees} />;
@@ -212,6 +246,12 @@ export default function AdminDashboard() {
     <div className="flex h-screen overflow-hidden">
       <AdminSidebar activeTab={activeTab} setActiveTab={setActiveTab} collapsed={collapsed} setCollapsed={setCollapsed} supportQueueCount={supportQueueCount} />
       <main className="flex-1 overflow-y-auto p-6 lg:p-8">
+        {isDataLoading && (
+          <div className="mb-4 p-4 bg-blue-50 border border-blue-200 rounded-xl text-blue-800 text-sm flex items-center gap-2">
+            <div className="animate-spin rounded-full h-4 w-4 border-2 border-blue-600 border-t-transparent"></div>
+            <span>Loading data from server...</span>
+          </div>
+        )}
         {anyQueryError && (
           <div className="mb-4 p-4 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm">
             <strong>Some data failed to load.</strong> Check the browser console (F12 → Console tab) for error details. The server may be waking up from sleep (Render free tier) — refresh the page in a moment.

@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Test</title>
+    <style>
+        body { font-family: monospace; padding: 20px; }
+        .result { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background: #d4edda; border-color: #c3e6cb; }
+        .error { background: #f8d7da; border-color: #f5c6cb; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; }
+        pre { background: #f4f4f4; padding: 10px; overflow: auto; }
+    </style>
+</head>
+<body>
+    <h1>API Response Test</h1>
+    <p>Testing API endpoints to see if they return JSON or HTML</p>
+    
+    <button onclick="testEndpoint('/api/test')">Test /api/test</button>
+    <button onclick="testEndpoint('/api/sermons')">Test /api/sermons</button>
+    <button onclick="testEndpoint('/api/events')">Test /api/events</button>
+    <button onclick="testEndpoint('/api/users')">Test /api/users</button>
+    <button onclick="clearResults()">Clear Results</button>
+    
+    <div id="results"></div>
+    
+    <script>
+        async function testEndpoint(path) {
+            const resultsDiv = document.getElementById('results');
+            const resultDiv = document.createElement('div');
+            resultDiv.className = 'result';
+            
+            try {
+                const response = await fetch(path, {
+                    headers: {
+                        'Authorization': 'Bearer ' + (localStorage.getItem('token') || '')
+                    }
+                });
+                
+                const contentType = response.headers.get('content-type');
+                const text = await response.text();
+                
+                let parsed;
+                let isJson = false;
+                try {
+                    parsed = JSON.parse(text);
+                    isJson = true;
+                } catch (e) {
+                    parsed = text;
+                }
+                
+                resultDiv.className = 'result ' + (isJson ? 'success' : 'error');
+                resultDiv.innerHTML = `
+                    <h3>${path}</h3>
+                    <p><strong>Status:</strong> ${response.status}</p>
+                    <p><strong>Content-Type:</strong> ${contentType}</p>
+                    <p><strong>Is JSON:</strong> ${isJson ? '✅ YES' : '❌ NO - Got HTML!'}</p>
+                    <details>
+                        <summary>Response Body</summary>
+                        <pre>${isJson ? JSON.stringify(parsed, null, 2) : text.substring(0, 500)}</pre>
+                    </details>
+                `;
+                
+                resultsDiv.insertBefore(resultDiv, resultsDiv.firstChild);
+            } catch (error) {
+                resultDiv.className = 'result error';
+                resultDiv.innerHTML = `
+                    <h3>${path}</h3>
+                    <p><strong>Error:</strong> ${error.message}</p>
+                `;
+                resultsDiv.insertBefore(resultDiv, resultsDiv.firstChild);
+            }
+        }
+        
+        function clearResults() {
+            document.getElementById('results').innerHTML = '';
+        }
+    </script>
+</body>
+</html>

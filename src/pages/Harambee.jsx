@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import { useSearchParams } from "react-router-dom";
 import { apiClient, SOCKET_URL, getBackendUrl } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Progress } from "@/components/ui/progress";
@@ -46,8 +47,10 @@ export default function Harambee() {
   useEffect(() => {
     const fetchHarambees = async () => {
       try {
-        const data = await apiClient.entities.Harambee.list();
-        setHarambees(data);
+        const response = await apiClient.entities.Harambee.list();
+        console.log('[Harambee] API response:', response);
+        const normalized = normalizeApiListResponse(response);
+        setHarambees(normalized);
       } catch (err) {
         console.error("Failed to load harambees", err);
       }

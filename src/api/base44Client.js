@@ -2,6 +2,11 @@ import axios from 'axios';
 
 // Helper to determine the backend URL dynamically
 export const getBackendUrl = () => {
+  // In development, use local backend
+  if (import.meta.env.DEV) {
+    return 'http://localhost:5000';
+  }
+  // In production, use the production backend
   return 'https://mutsda.onrender.com';
 };
 
@@ -34,13 +39,24 @@ api.interceptors.response.use(
 );
 
 const createEntityClient = (entityName) => ({
+  // Get all items - backend returns { success: true, data: [...], count: N }
+  list: () => api.get(`/${entityName}`).then(res => res.data),
+  
+  // Filter with query params (not all endpoints support this)
   filter: (query = {}, sort = '') => {
     return api.get(`/${entityName}`, { params: query }).then(res => res.data);
   },
-  list: () => api.get(`/${entityName}`).then(res => res.data),
-  get: (id) => api.get(`/${entityName}/${id}`).then(res => res.data),
-  create: (data) => api.post(`/${entityName}`, data).then(res => res.data),
-  update: (id, data) => api.put(`/${entityName}/${id}`, data).then(res => res.data),
+  
+  // Get single item - backend returns { success: true, data: {...} }
+  get: (id) => api.get(`/${entityName}/${id}`).then(res => res.data?.data || res.data),
+  
+  // Create item - backend returns { success: true, data: {...} }
+  create: (data) => api.post(`/${entityName}`, data).then(res => res.data?.data || res.data),
+  
+  // Update item - backend returns { success: true, data: {...} }
+  update: (id, data) => api.put(`/${entityName}/${id}`, data).then(res => res.data?.data || res.data),
+  
+  // Delete item - backend returns { success: true, message: '...', data: null }
   delete: (id) => api.delete(`/${entityName}/${id}`).then(res => res.data),
 });
 

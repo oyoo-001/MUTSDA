@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
 import { apiClient } from "@/api/base44Client";
+import { normalizeApiListResponse } from "@/api/normalizeApiResponse";
 import { useQuery } from "@tanstack/react-query";
 import { useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -38,9 +39,9 @@ export default function Gallery() {
   const { data: mediaData, isLoading, isError, refetch } = useQuery({
     queryKey: ["media"],
     queryFn: async () => {
-      const response = await apiClient.entities.MediaItem.filter({}, "-created_date");
-      // Safety check: ensure we always return an array even if API wraps it in an object
-      return Array.isArray(response) ? response : (response?.data || response?.items || []);
+      const response = await apiClient.entities.MediaItem.list();
+      console.log('[Gallery] Media response:', response);
+      return normalizeApiListResponse(response);
     },
     initialData: [],
   });
